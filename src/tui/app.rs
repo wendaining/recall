@@ -136,6 +136,10 @@ impl App {
                 self.copy_output();
                 return;
             }
+            KeyCode::Char('e') if ctrl => {
+                self.dispatch(Action::Rerun);
+                return;
+            }
             KeyCode::F(1) => {
                 self.show_help = !self.show_help;
                 return;

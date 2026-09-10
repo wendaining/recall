@@ -33,10 +33,10 @@ through a PTY.
 
 ## Requirements
 
-- Linux (primary target: Linux + zsh + kitty)
+- Linux or macOS (Windows build support is planned, not yet functional)
 - Rust (to build) — developed against Rust 1.88+
 - SQLite is bundled, no system dependency
-- zsh 5.9+ for shell integration
+- zsh, bash or fish for shell integration
 
 ## Build
 
@@ -57,17 +57,28 @@ Make sure `~/.local/bin` is on `PATH`.
 > Read the Setup part of README.md file and set it up for me.
 > ```
 
-### 1. zsh integration
+### 1. Shell integration
 
-Add to `~/.zshrc` (after `eval "$(atuin init zsh)"` if you use atuin):
+Add the matching line to your shell's startup file:
 
 ```zsh
+# ~/.zshrc (after `eval "$(atuin init zsh)"` if you use atuin)
 eval "$(recall init zsh)"
 ```
 
-This installs `preexec`/`precmd` hooks and an **Alt+R** widget that opens the
-TUI and inserts the selected command into your prompt. Override the key with
-`RECALL_KEY`, e.g. `RECALL_KEY='^[e'`.
+```bash
+# ~/.bashrc
+eval "$(recall init bash)"
+```
+
+```fish
+# ~/.config/fish/config.fish
+recall init fish | source
+```
+
+This installs the capture hooks and an **Alt+R** widget that opens the TUI and
+inserts the selected command into your prompt. Override the key with
+`RECALL_KEY` (zsh), or rebind in bash/fish.
 
 Without the proxy, recall still records command metadata in the background. To
 capture output, run your shell under the proxy.
@@ -110,6 +121,7 @@ Open the TUI with `recall` (or the Alt+R widget):
 | `Enter` | switch focus between search and detail |
 | `Tab` | edit selected command (insert into the prompt) |
 | `Ctrl+Enter` | execute selected command |
+| `Ctrl+E` | execute (fallback for terminals without the kitty protocol) |
 | `Ctrl+Y` / `y` | copy command |
 | `Ctrl+O` / `Y` | copy output |
 | `PgUp` / `PgDn`, `Home` / `End` | scroll output |

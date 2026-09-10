@@ -216,7 +216,7 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
 
 fn default_hint(app: &App) -> String {
     format!(
-        "{} results · ↑/↓ move/scroll · Enter focus · Tab edit · Ctrl+Enter run · Ctrl+Y copy cmd · Ctrl+O copy output · q quit · F1 help",
+        "{} results · ↑/↓ move/scroll · Enter focus · Tab edit · Ctrl+Enter/Ctrl+E run · Ctrl+Y copy cmd · Ctrl+O copy output · q quit · F1 help",
         app.results.len()
     )
 }
@@ -236,6 +236,8 @@ fn draw_help(frame: &mut Frame) {
         Line::raw("Enter           switch focus (search/detail)"),
         Line::raw("Tab             edit selected command (insert into prompt)"),
         Line::raw("Ctrl+Enter      execute selected command"),
+        Line::raw("Ctrl+E          execute (fallback for terminals without"),
+        Line::raw("                the kitty keyboard protocol)"),
         Line::raw("Ctrl+Y / y      copy command"),
         Line::raw("Ctrl+O / Y      copy output"),
         Line::raw("Esc             clear search / leave detail"),
