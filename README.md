@@ -185,6 +185,22 @@ kitty ──▶ recall proxy (PTY) ──▶ zsh (+ recall.zsh hooks)
   SQLite. Command metadata is stored redundantly and linked to atuin by
   `atuin_id`.
 
+## Compatibility
+
+recall is terminal-agnostic: it uses standard ANSI/OSC sequences and renders
+with crossterm, so it works in any VT-compatible terminal. The only per-terminal
+differences are clipboard support and whether `Ctrl+Enter` can be reported
+distinctly (`Ctrl+E` is the fallback).
+
+| Platform | Shells | Terminals | Notes |
+| --- | --- | --- | --- |
+| Linux | zsh, bash, fish | kitty, Ghostty, Konsole, GNOME Terminal, … | full support |
+| macOS | zsh, bash, fish | Ghostty, kitty, Terminal.app, iTerm2 | Terminal.app: clipboard via `pbcopy`, use `Ctrl+E` to execute |
+| Windows | — | Windows Terminal | build-only for now; use WSL for full functionality |
+
+Clipboard backends are chosen automatically: `wl-copy` (Wayland), `xclip`/`xsel`
+(X11), `pbcopy` (macOS), `clip` (Windows), then native `arboard`, then OSC 52.
+
 ## Limitations
 
 - **Redirected output is not captured.** `cmd > file` never reaches the

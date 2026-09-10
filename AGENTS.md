@@ -46,17 +46,20 @@ src/
     ui.rs          ratatui rendering
     mod.rs         terminal setup (renders to stderr) + event loop
   commands/        one module per CLI command
-shell/recall.zsh   embedded zsh integration (include_str!)
+shell/recall.zsh   embedded shell integrations (include_str!)
+shell/recall.bash
+shell/recall.fish
 ```
 
 ### Capture flow
 
 1. `recall shell` -> `capture::proxy::run` opens a PTY and spawns the shell with
    `RECALL_PROXY_ACTIVE=1` and `RECALL_SESSION=<id>`.
-2. zsh `preexec` writes an in-band start marker carrying the command metadata:
+2. The shell's preexec hook (zsh `preexec`, bash `DEBUG` trap, fish
+   `fish_preexec`) writes an in-band start marker carrying the command metadata:
    `ESC ] 9999 ; {"type":"start",...} BEL`.
 3. The proxy forwards PTY bytes to stdout and appends them to the active buffer.
-4. zsh `precmd` writes the matching end marker with the exit code, before the
+4. The precmd hook writes the matching end marker with the exit code, before the
    prompt is drawn.
 5. `marker::MarkerFilter` parses and strips both markers; `end` finalizes,
    classifies, and hands the block to a writer thread that inserts into SQLite.
@@ -80,6 +83,12 @@ execute immediately.
   JSON escapes literal.
 - zsh does not word-split unquoted expansions; pass flags as separate arguments
   or arrays.
+- Shell gotchas:
+  - zsh: `status` is a read-only special parameter; never assign to it.
+  - bash: capture `$?` in the first `PROMPT_COMMAND` entry — later entries
+    clobber it before the precmd hook runs.
+  - fish: `$CMD_DURATION` is milliseconds; format durations with `math -s0` so
+    the JSON has no leading zeros.
 - Output is stored zstd-compressed; a truncated plain-text projection lives in
   `output_text` for FTS. Keep the two in sync.
 - DB access uses WAL + `busy_timeout`; multiple processes may write.
