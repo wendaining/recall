@@ -152,14 +152,6 @@ impl App {
                 self.move_selection(1);
                 return;
             }
-            KeyCode::Char('p') if ctrl => {
-                self.move_selection(-1);
-                return;
-            }
-            KeyCode::Char('n') if ctrl => {
-                self.move_selection(1);
-                return;
-            }
             KeyCode::PageUp => {
                 self.scroll_detail(-10);
                 return;

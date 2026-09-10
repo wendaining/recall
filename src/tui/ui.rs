@@ -231,7 +231,7 @@ fn draw_help(frame: &mut Frame) {
         )),
         Line::raw(""),
         Line::raw("type            search command and output"),
-        Line::raw("↑/↓ Ctrl+P/N    move selection"),
+        Line::raw("↑/↓             move selection (search) / scroll output (detail)"),
         Line::raw("PgUp/PgDn       scroll output"),
         Line::raw("Tab             switch focus (search/detail)"),
         Line::raw("Enter           copy command (or print with --cmd-only)"),
