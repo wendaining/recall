@@ -110,10 +110,7 @@ impl Clipboard for ClipboardChain {
     }
 
     fn name(&self) -> &'static str {
-        self.backends
-            .first()
-            .map(|b| b.name())
-            .unwrap_or("none")
+        self.backends.first().map(|b| b.name()).unwrap_or("none")
     }
 }
 

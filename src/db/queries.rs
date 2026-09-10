@@ -55,8 +55,7 @@ pub fn insert(conn: &Connection, block: &Block) -> Result<()> {
         Some(raw) if !raw.is_empty() => {
             let compressed = compress(raw)?;
             let projection_len = raw.len().min(SEARCH_PROJECTION_BYTES);
-            let projection =
-                String::from_utf8_lossy(&raw[..projection_len]).into_owned();
+            let projection = String::from_utf8_lossy(&raw[..projection_len]).into_owned();
             (Some(compressed), Some("zstd".to_string()), Some(projection))
         }
         _ => (None, None, None),
@@ -94,9 +93,7 @@ pub fn insert(conn: &Connection, block: &Block) -> Result<()> {
 
 /// Most recent blocks (without full output; preview comes from the projection).
 pub fn recent(conn: &Connection, limit: usize) -> Result<Vec<Block>> {
-    let sql = format!(
-        "SELECT {COLUMNS} FROM blocks ORDER BY started_at DESC LIMIT ?1"
-    );
+    let sql = format!("SELECT {COLUMNS} FROM blocks ORDER BY started_at DESC LIMIT ?1");
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params![limit as i64], |row| row_to_block(row, false))?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -250,8 +247,16 @@ mod tests {
     #[test]
     fn search_matches_command_and_output() {
         let db = Db::open_in_memory().unwrap();
-        insert(&db.conn, &sample("a", "cargo build", Some("Compiling recall"), 1)).unwrap();
-        insert(&db.conn, &sample("b", "git status", Some("nothing to commit"), 2)).unwrap();
+        insert(
+            &db.conn,
+            &sample("a", "cargo build", Some("Compiling recall"), 1),
+        )
+        .unwrap();
+        insert(
+            &db.conn,
+            &sample("b", "git status", Some("nothing to commit"), 2),
+        )
+        .unwrap();
 
         let by_cmd = search(&db.conn, "cargo", 10).unwrap();
         assert_eq!(by_cmd.len(), 1);

@@ -170,10 +170,7 @@ pub fn run(config: Arc<Config>, shell: String) -> Result<i32> {
         let _ = stdout.flush();
     }
 
-    let code = child
-        .wait()
-        .map(|status| status.exit_code())
-        .unwrap_or(1) as i32;
+    let code = child.wait().map(|status| status.exit_code()).unwrap_or(1) as i32;
 
     drain_pending(&shared, Duration::from_millis(500));
     Ok(code)
@@ -182,10 +179,10 @@ pub fn run(config: Arc<Config>, shell: String) -> Result<i32> {
 /// Append forwarded bytes to the active capture, unless it already ended.
 fn capture(shared: &Arc<Shared>, data: &[u8]) {
     let mut state = shared.state.lock().unwrap();
-    if let Some(active) = state.active.as_mut() {
-        if !active.ended {
-            active.push(data);
-        }
+    if let Some(active) = state.active.as_mut()
+        && !active.ended
+    {
+        active.push(data);
     }
 }
 
@@ -243,12 +240,12 @@ fn handle_conn(mut stream: UnixStream, shared: &Arc<Shared>) -> Result<()> {
                 duration_ns,
             }) => {
                 let active = shared.state.lock().unwrap().active.take();
-                if let Some(active) = active {
-                    if active.id == id {
-                        let block = finalize(active, exit, duration_ns, shared);
-                        shared.pending.fetch_add(1, Ordering::SeqCst);
-                        let _ = shared.tx.send(block);
-                    }
+                if let Some(active) = active
+                    && active.id == id
+                {
+                    let block = finalize(active, exit, duration_ns, shared);
+                    shared.pending.fetch_add(1, Ordering::SeqCst);
+                    let _ = shared.tx.send(block);
                 }
                 Response::ok()
             }

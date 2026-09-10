@@ -35,7 +35,10 @@ fn check_recall_db(cfg: &Config) -> Result<()> {
                 .conn
                 .query_row("PRAGMA user_version", [], |r| r.get(0))
                 .unwrap_or(-1);
-            println!("  ok: {count} block(s), schema v{version} (expected v{})", schema::SCHEMA_VERSION);
+            println!(
+                "  ok: {count} block(s), schema v{version} (expected v{})",
+                schema::SCHEMA_VERSION
+            );
         }
         Err(err) => println!("  ERROR: {err}"),
     }
@@ -50,12 +53,12 @@ fn check_atuin_db(cfg: &Config) {
         return;
     }
     match Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY) {
-        Ok(conn) => match conn.query_row("SELECT COUNT(*) FROM history", [], |r| {
-            r.get::<_, i64>(0)
-        }) {
-            Ok(count) => println!("  ok: {count} history row(s)"),
-            Err(err) => println!("  cannot read history table: {err}"),
-        },
+        Ok(conn) => {
+            match conn.query_row("SELECT COUNT(*) FROM history", [], |r| r.get::<_, i64>(0)) {
+                Ok(count) => println!("  ok: {count} history row(s)"),
+                Err(err) => println!("  cannot read history table: {err}"),
+            }
+        }
         Err(err) => println!("  cannot open: {err}"),
     }
 }
@@ -65,7 +68,11 @@ fn check_clipboard(cfg: &Config) {
     for tool in ["wl-copy", "xclip", "xsel"] {
         println!(
             "  {tool:<8} {}",
-            if util::command_exists(tool) { "found" } else { "missing" }
+            if util::command_exists(tool) {
+                "found"
+            } else {
+                "missing"
+            }
         );
     }
     println!("  arboard   built-in (native)");

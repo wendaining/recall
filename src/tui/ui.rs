@@ -19,9 +19,8 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 
     draw_search(frame, app, areas[0]);
 
-    let panes =
-        Layout::horizontal([Constraint::Percentage(42), Constraint::Percentage(58)])
-            .split(areas[1]);
+    let panes = Layout::horizontal([Constraint::Percentage(42), Constraint::Percentage(58)])
+        .split(areas[1]);
     draw_list(frame, app, panes[0]);
     draw_detail(frame, app, panes[1]);
 
@@ -34,7 +33,11 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 
 fn draw_search(frame: &mut Frame, app: &App, area: Rect) {
     let focused = app.focus == Focus::Search;
-    let title = if focused { "recall — search" } else { "recall" };
+    let title = if focused {
+        "recall — search"
+    } else {
+        "recall"
+    };
     let block = Block::bordered()
         .title(title)
         .border_style(border_style(focused));
@@ -127,11 +130,7 @@ fn header_line(block: &RecallBlock, config: &crate::config::Config) -> Line<'sta
         Some(code) => (format!("exit {code}"), Style::default().fg(Color::Red)),
         None => ("exit ?".to_string(), Style::default().fg(Color::DarkGray)),
     };
-    let cwd = block
-        .cwd
-        .as_deref()
-        .map(shorten_home)
-        .unwrap_or_default();
+    let cwd = block.cwd.as_deref().map(shorten_home).unwrap_or_default();
 
     Line::from(vec![
         Span::styled(time, Style::default().fg(Color::Blue)),
@@ -166,24 +165,25 @@ fn draw_detail(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn detail_text(block: &RecallBlock, config: &crate::config::Config) -> Text<'static> {
-    let mut lines: Vec<Line> = Vec::new();
-    lines.push(Line::from(Span::styled(
-        block.command.clone(),
-        Style::default().add_modifier(Modifier::BOLD),
-    )));
-    lines.push(header_line(block, config));
-    lines.push(Line::from(vec![
-        Span::styled("kind: ", Style::default().fg(Color::DarkGray)),
-        Span::raw(kind_label(block.kind).to_string()),
-        Span::styled("   bytes: ", Style::default().fg(Color::DarkGray)),
-        Span::raw(block.output_bytes.to_string()),
-        Span::styled("   lines: ", Style::default().fg(Color::DarkGray)),
-        Span::raw(block.output_lines.to_string()),
-    ]));
-    lines.push(Line::from(Span::styled(
-        "─".repeat(200),
-        Style::default().fg(Color::Indexed(240)),
-    )));
+    let mut lines: Vec<Line> = vec![
+        Line::from(Span::styled(
+            block.command.clone(),
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+        header_line(block, config),
+        Line::from(vec![
+            Span::styled("kind: ", Style::default().fg(Color::DarkGray)),
+            Span::raw(kind_label(block.kind).to_string()),
+            Span::styled("   bytes: ", Style::default().fg(Color::DarkGray)),
+            Span::raw(block.output_bytes.to_string()),
+            Span::styled("   lines: ", Style::default().fg(Color::DarkGray)),
+            Span::raw(block.output_lines.to_string()),
+        ]),
+        Line::from(Span::styled(
+            "─".repeat(200),
+            Style::default().fg(Color::Indexed(240)),
+        )),
+    ];
 
     match &block.output {
         Some(output) => {
@@ -207,11 +207,11 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         Style::default().fg(Color::DarkGray)
     };
-    let message = app
-        .status
-        .clone()
-        .unwrap_or_else(|| default_hint(app));
-    frame.render_widget(Paragraph::new(Line::from(Span::styled(message, style))), area);
+    let message = app.status.clone().unwrap_or_else(|| default_hint(app));
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(message, style))),
+        area,
+    );
 }
 
 fn default_hint(app: &App) -> String {

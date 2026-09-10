@@ -22,9 +22,11 @@ pub fn run(args: RecordArgs) -> Result<()> {
         hostname: util::resolved_hostname(&config),
         shell: Some("zsh".to_string()),
         command: args.command,
-        cwd: args
-            .cwd
-            .or_else(|| std::env::current_dir().ok().map(|p| p.display().to_string())),
+        cwd: args.cwd.or_else(|| {
+            std::env::current_dir()
+                .ok()
+                .map(|p| p.display().to_string())
+        }),
         started_at: now,
         duration_ns: args.duration_ns,
         exit_code: args.exit,
