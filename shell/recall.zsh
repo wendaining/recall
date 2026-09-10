@@ -113,16 +113,17 @@ _recall_search() {
   emulate -L zsh
   zle -I
 
-  local output status
-  output=$(command recall search --cmd-only 2>/dev/tty)
-  status=$?
+  # NB: `status` is a read-only special parameter in zsh; do not use it here.
+  local recall_output recall_status
+  recall_output=$(command recall search --cmd-only 2>/dev/tty)
+  recall_status=$?
 
   zle reset-prompt
-  if [[ -n $output ]]; then
-    BUFFER=$output
+  if [[ -n $recall_output ]]; then
+    BUFFER=$recall_output
     CURSOR=${#BUFFER}
-    if [[ $status -eq 2 ]]; then
-      # User pressed 'r' in the TUI: execute immediately.
+    if [[ $recall_status -eq 2 ]]; then
+      # User pressed Ctrl+R in the TUI: execute immediately.
       zle accept-line
     else
       zle reset-prompt
