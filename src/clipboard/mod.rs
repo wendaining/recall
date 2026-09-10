@@ -125,6 +125,8 @@ impl ClipboardChain {
             "wl-copy" => vec![external_wl_copy()],
             "xclip" => vec![external_xclip()],
             "xsel" => vec![external_xsel()],
+            "pbcopy" => vec![external_pbcopy()],
+            "clip" => vec![external_clip()],
             // auto: prefer external tools that match the session, then native,
             // then OSC 52 as a last resort.
             _ => auto_backends(config),
@@ -146,6 +148,12 @@ fn auto_backends(config: &ClipboardConfig) -> Vec<Box<dyn Clipboard>> {
     }
     if x11 && util::command_exists("xsel") {
         backends.push(external_xsel());
+    }
+    if cfg!(target_os = "macos") && util::command_exists("pbcopy") {
+        backends.push(external_pbcopy());
+    }
+    if cfg!(windows) && util::command_exists("clip") {
+        backends.push(external_clip());
     }
     backends.push(Box::new(ArboardClipboard));
     backends.push(Box::new(Osc52Clipboard {
@@ -175,6 +183,22 @@ fn external_xsel() -> Box<dyn Clipboard> {
         name: "xsel",
         program: "xsel",
         args: &["--clipboard", "--input"],
+    })
+}
+
+fn external_pbcopy() -> Box<dyn Clipboard> {
+    Box::new(ExternalClipboard {
+        name: "pbcopy",
+        program: "pbcopy",
+        args: &[],
+    })
+}
+
+fn external_clip() -> Box<dyn Clipboard> {
+    Box::new(ExternalClipboard {
+        name: "clip",
+        program: "clip",
+        args: &[],
     })
 }
 

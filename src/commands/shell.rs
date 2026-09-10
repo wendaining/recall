@@ -18,13 +18,24 @@ pub fn run(args: ShellArgs) -> Result<()> {
         || !std::io::stdout().is_terminal();
 
     if proxy_disabled {
-        use std::os::unix::process::CommandExt;
-        let err = std::process::Command::new(&shell).exec();
-        return Err(anyhow!("failed to exec {shell}: {err}"));
+        return run_plain(&shell);
     }
 
     let code = proxy::run(Arc::new(config), shell)?;
     std::process::exit(code);
+}
+
+#[cfg(unix)]
+fn run_plain(shell: &str) -> Result<()> {
+    use std::os::unix::process::CommandExt;
+    let err = std::process::Command::new(shell).exec();
+    Err(anyhow!("failed to exec {shell}: {err}"))
+}
+
+#[cfg(not(unix))]
+fn run_plain(shell: &str) -> Result<()> {
+    let status = std::process::Command::new(shell).status()?;
+    std::process::exit(status.code().unwrap_or(0));
 }
 
 fn resolve_shell(args: &ShellArgs, config: &Config) -> String {

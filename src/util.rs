@@ -11,15 +11,11 @@ pub fn now_ns() -> i64 {
         .unwrap_or(0)
 }
 
-/// Best-effort hostname without pulling in an extra dependency.
+/// Best-effort hostname, cross-platform.
 pub fn hostname() -> Option<String> {
-    if let Ok(name) = std::fs::read_to_string("/etc/hostname") {
-        let name = name.trim();
-        if !name.is_empty() {
-            return Some(name.to_string());
-        }
-    }
-    std::env::var("HOSTNAME").ok().filter(|s| !s.is_empty())
+    let name = gethostname::gethostname();
+    let name = name.to_string_lossy().trim().to_string();
+    if name.is_empty() { None } else { Some(name) }
 }
 
 /// Resolve the hostname, honoring a config override.
@@ -27,9 +23,15 @@ pub fn resolved_hostname(config: &Config) -> Option<String> {
     config.general.hostname.clone().or_else(hostname)
 }
 
-/// The user's login shell, falling back to /bin/sh.
+/// The user's login shell.
+#[cfg(unix)]
 pub fn login_shell() -> String {
     std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
+}
+
+#[cfg(windows)]
+pub fn login_shell() -> String {
+    std::env::var("COMSPEC").unwrap_or_else(|_| "powershell.exe".to_string())
 }
 
 /// Whether an executable is found on `PATH`.
@@ -38,8 +40,18 @@ pub fn command_exists(name: &str) -> bool {
         return false;
     };
     std::env::split_paths(&paths).any(|dir| {
-        let candidate = dir.join(name);
-        candidate.is_file()
+        if dir.join(name).is_file() {
+            return true;
+        }
+        #[cfg(windows)]
+        {
+            for ext in ["exe", "cmd", "bat", "ps1"] {
+                if dir.join(format!("{name}.{ext}")).is_file() {
+                    return true;
+                }
+            }
+        }
+        false
     })
 }
 

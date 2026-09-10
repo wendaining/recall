@@ -161,13 +161,3 @@ pub fn default_atuin_db_path() -> PathBuf {
         .join("atuin")
         .join("history.db")
 }
-
-/// Runtime directory used for per-session control sockets.
-pub fn runtime_dir() -> PathBuf {
-    dirs::runtime_dir().unwrap_or_else(std::env::temp_dir)
-}
-
-/// Directory holding recall's per-session control sockets.
-pub fn recall_runtime_dir() -> PathBuf {
-    runtime_dir().join("recall")
-}
