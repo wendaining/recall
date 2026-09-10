@@ -30,7 +30,8 @@ through a PTY.
   what atuin does not store (output).
 - **Sensible edge cases**: no-output, interactive/alt-screen, binary and
   redirected commands are classified instead of silently mangled.
-- **Retention**: stored output expires after 30 days by default.
+- **Secrets filter** and **retention**: obvious secrets are dropped, and stored
+  output expires after 30 days by default.
 
 ## Requirements
 
@@ -159,6 +160,7 @@ strip_ansi = true
 
 [proxy]
 mark_interactive = true      # skip output of full-screen programs
+secrets_filter = true
 
 [retention]
 retention_days = 30          # 0 disables expiry

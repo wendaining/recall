@@ -15,7 +15,7 @@ emulator.
 
 ```sh
 cargo build            # debug build
-cargo test             # unit tests (marker filter, classifier, db)
+cargo test             # unit tests (marker filter, classifier, db, secrets)
 cargo fmt              # formatting (run before committing)
 cargo clippy --all-targets
 cargo build --release
@@ -40,6 +40,7 @@ src/
     protocol.rs    control messages (start/end)
     marker.rs      streaming private-OSC marker parser
     classifier.rs  ANSI strip + normal/empty/interactive/binary classification
+    secrets.rs     best-effort secret detection
   clipboard/       Clipboard trait + arboard / OSC52 / external backends
   tui/
     app.rs         App state + key handling
