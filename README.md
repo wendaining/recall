@@ -56,7 +56,7 @@ Make sure `~/.local/bin` is on `PATH`.
 > You can clone this Repo and tell your Agent:
 >
 > ```text
-> Read the Setup part of README.md file and set it up for me.
+> Read the Setup part of README.md file and set it up for me. Ask user whether to launch it as the shell or not.
 > ```
 
 ### 1. Shell integration
@@ -91,6 +91,15 @@ Either start a wrapped shell manually:
 
 ```sh
 recall shell
+```
+
+or re-exec automatically from your shell startup file. For zsh, put this at the
+very top of `~/.zshrc` (before anything heavy, so startup work is not repeated):
+
+```zsh
+if [[ -o interactive ]] && [[ -t 0 ]] && [[ -t 1 ]] && [[ -z "${RECALL_PROXY_ACTIVE:-}" ]]; then
+  command -v recall >/dev/null 2>&1 && exec recall shell
+fi
 ```
 
 or configure your terminal emulator to launch it as the shell. The setting

@@ -84,6 +84,15 @@ zsh 下可用 `RECALL_KEY` 覆盖按键，bash/fish 下可自行重新绑定。
 recall shell
 ```
 
+也可以在 shell 启动文件里自动 re-exec。以 zsh 为例，把下面这段放到
+`~/.zshrc` 最前面（在任何重量级内容之前，避免启动工作重复执行）：
+
+```zsh
+if [[ -o interactive ]] && [[ -t 0 ]] && [[ -t 1 ]] && [[ -z "${RECALL_PROXY_ACTIVE:-}" ]]; then
+  command -v recall >/dev/null 2>&1 && exec recall shell
+fi
+```
+
 或配置终端模拟器，把它作为 shell 启动。不同模拟器的设置项名称不同
 （`shell`、`command` 等），例如：
 

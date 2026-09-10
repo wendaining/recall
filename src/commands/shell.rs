@@ -21,8 +21,15 @@ pub fn run(args: ShellArgs) -> Result<()> {
         return run_plain(&shell);
     }
 
-    let code = proxy::run(Arc::new(config), shell)?;
-    std::process::exit(code);
+    match proxy::run(Arc::new(config), shell.clone()) {
+        Ok(code) => std::process::exit(code),
+        Err(err) => {
+            util::eprintln_flush(&format!(
+                "recall: proxy failed to start ({err}); falling back to a plain shell"
+            ));
+            run_plain(&shell)
+        }
+    }
 }
 
 #[cfg(unix)]
