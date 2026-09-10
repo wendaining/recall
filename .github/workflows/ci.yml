@@ -5,11 +5,37 @@ on:
     branches: [master]
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      shell: ${{ steps.filter.outputs.shell }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            rust:
+              - 'src/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/workflows/ci.yml'
+            shell:
+              - 'shell/**'
+              - '.github/workflows/ci.yml'
+
   test:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     name: build & test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -22,35 +48,29 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Format
-        run: cargo fmt --check
-      - name: Clippy
-        run: cargo clippy --all-targets
-      - name: Test
-        run: cargo test
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets
+      - run: cargo test
 
-  shell-integration:
-    name: shell integration syntax
+  shell:
+    needs: changes
+    if: needs.changes.outputs.shell == 'true'
+    name: shell syntax
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Install fish
-        run: sudo apt-get update && sudo apt-get install -y fish zsh
-      - name: Build
-        run: cargo build
-      - name: Check generated scripts
-        run: |
-          ./target/debug/recall init zsh  > /tmp/recall.zsh
-          ./target/debug/recall init bash > /tmp/recall.bash
-          ./target/debug/recall init fish > /tmp/recall.fish
-          zsh -n /tmp/recall.zsh
-          bash -n /tmp/recall.bash
-          fish -n /tmp/recall.fish
+      - run: sudo apt-get update && sudo apt-get install -y zsh fish
+      # The integrations are embedded verbatim via include_str!, so the source
+      # files can be checked directly without building.
+      - run: |
+          zsh -n shell/recall.zsh
+          bash -n shell/recall.bash
+          fish -n shell/recall.fish
 
   windows-check:
-    name: cargo check (windows, non-blocking)
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    name: cargo check (windows)
     runs-on: windows-latest
     continue-on-error: true
     steps:
