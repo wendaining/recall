@@ -48,6 +48,13 @@ pub struct App {
 impl App {
     pub fn new(config: Config, cmd_only: bool, initial_query: Option<String>) -> Result<Self> {
         let db = Db::open(&config.general.db_path)?;
+        if config.retention.auto_prune && config.retention.retention_days > 0 {
+            let _ = queries::prune(
+                &db.conn,
+                config.retention.retention_days,
+                crate::util::now_ns(),
+            );
+        }
         let clipboard = crate::clipboard::ClipboardChain::detect(&config.clipboard);
         let mut app = Self {
             db,

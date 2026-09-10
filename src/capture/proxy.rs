@@ -62,6 +62,7 @@ struct Shared {
     config: Arc<Config>,
     session: String,
     hostname: Option<String>,
+    exclude: regex::RegexSet,
     tx: Sender<Block>,
     pending: AtomicUsize,
 }
@@ -88,6 +89,7 @@ pub fn run(config: Arc<Config>, shell: String) -> Result<i32> {
         config: config.clone(),
         session: session.clone(),
         hostname: util::resolved_hostname(&config),
+        exclude: build_exclude(&config.proxy.exclude),
         tx,
         pending: AtomicUsize::new(0),
     });
@@ -219,19 +221,21 @@ fn handle_conn(mut stream: UnixStream, shared: &Arc<Shared>) -> Result<()> {
                 atuin_id,
                 started_at,
             }) => {
-                let mut state = shared.state.lock().unwrap();
-                state.active = Some(Active {
-                    id,
-                    command,
-                    cwd,
-                    atuin_id,
-                    started_at: started_at.unwrap_or_else(util::now_ns),
-                    buffer: Vec::new(),
-                    truncated: false,
-                    total: 0,
-                    max: shared.config.general.max_output_bytes,
-                    ended: false,
-                });
+                if !shared.exclude.is_match(&command) {
+                    let mut state = shared.state.lock().unwrap();
+                    state.active = Some(Active {
+                        id,
+                        command,
+                        cwd,
+                        atuin_id,
+                        started_at: started_at.unwrap_or_else(util::now_ns),
+                        buffer: Vec::new(),
+                        truncated: false,
+                        total: 0,
+                        max: shared.config.general.max_output_bytes,
+                        ended: false,
+                    });
+                }
                 Response::ok()
             }
             Ok(Request::End {
@@ -307,6 +311,15 @@ fn finalize(
         kind: classified.kind,
         created_at: util::now_ns(),
     }
+}
+
+fn build_exclude(patterns: &[String]) -> regex::RegexSet {
+    let valid: Vec<&str> = patterns
+        .iter()
+        .map(String::as_str)
+        .filter(|pattern| regex::Regex::new(pattern).is_ok())
+        .collect();
+    regex::RegexSet::new(valid).unwrap_or_else(|_| regex::RegexSet::new([r"$^"]).unwrap())
 }
 
 fn looks_secret(command: &str, output: &Option<Vec<u8>>) -> bool {
