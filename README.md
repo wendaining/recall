@@ -1,5 +1,7 @@
 # recall
 
+English | [简体中文](README.zh-CN.md)
+
 A lightweight, Warp-Block-style shell history viewer for the terminal.
 
 Inspired from [Warp](https://www.warp.dev/) and [atuin](https://github.com/atuinsh/atuin).
