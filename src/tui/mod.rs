@@ -5,7 +5,10 @@ use std::io;
 use std::time::Duration;
 
 use anyhow::Result;
-use crossterm::event::{self, Event, KeyEventKind};
+use crossterm::event::{
+    self, Event, KeyEventKind, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags,
+    PushKeyboardEnhancementFlags,
+};
 use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -75,6 +78,12 @@ impl TerminalGuard {
         enable_raw_mode()?;
         let mut stderr = io::stderr();
         execute!(stderr, EnterAlternateScreen)?;
+        // Ask the terminal (kitty et al.) to report modifier keys such as
+        // Ctrl+Enter distinctly. Ignored on terminals that don't support it.
+        let _ = execute!(
+            stderr,
+            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+        );
         let terminal = Terminal::new(CrosstermBackend::new(stderr))?;
         Ok(Self { terminal })
     }
@@ -85,7 +94,11 @@ impl TerminalGuard {
 
     fn leave(&mut self) {
         let _ = disable_raw_mode();
-        let _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen);
+        let _ = execute!(
+            self.terminal.backend_mut(),
+            PopKeyboardEnhancementFlags,
+            LeaveAlternateScreen
+        );
         let _ = self.terminal.show_cursor();
     }
 }

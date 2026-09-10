@@ -136,10 +136,6 @@ impl App {
                 self.copy_output();
                 return;
             }
-            KeyCode::Char('r') if ctrl => {
-                self.select(Action::Rerun);
-                return;
-            }
             KeyCode::F(1) => {
                 self.show_help = !self.show_help;
                 return;
@@ -152,15 +148,19 @@ impl App {
                 self.scroll_detail(10);
                 return;
             }
-            KeyCode::Tab => {
+            KeyCode::Enter if ctrl => {
+                self.dispatch(Action::Rerun);
+                return;
+            }
+            KeyCode::Enter => {
                 self.focus = match self.focus {
                     Focus::Search => Focus::Detail,
                     Focus::Detail => Focus::Search,
                 };
                 return;
             }
-            KeyCode::Enter => {
-                self.accept();
+            KeyCode::Tab => {
+                self.dispatch(Action::Edit);
                 return;
             }
             _ => {}
@@ -204,7 +204,6 @@ impl App {
             KeyCode::End => self.detail_scroll = u16::MAX,
             KeyCode::Char('y') => self.copy_command(),
             KeyCode::Char('Y') => self.copy_output(),
-            KeyCode::Char('r') => self.select(Action::Rerun),
             KeyCode::Char('q') | KeyCode::Esc => self.focus = Focus::Search,
             _ => {}
         }
@@ -215,19 +214,21 @@ impl App {
         self.detail_scroll = next.max(0) as u16;
     }
 
-    fn accept(&mut self) {
-        if self.cmd_only {
-            self.select(Action::Edit);
-        } else {
-            self.copy_command();
-        }
-    }
-
     fn select(&mut self, action: Action) {
         if let Some(block) = self.results.get(self.selected) {
             self.selected_command = Some(block.command.clone());
             self.action = action;
             self.should_quit = true;
+        }
+    }
+
+    /// In `--cmd-only` mode (the shell widget) the selection is printed for the
+    /// shell to act on; standalone it is copied to the clipboard.
+    fn dispatch(&mut self, action: Action) {
+        if self.cmd_only {
+            self.select(action);
+        } else {
+            self.copy_command();
         }
     }
 

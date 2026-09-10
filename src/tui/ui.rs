@@ -216,7 +216,7 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
 
 fn default_hint(app: &App) -> String {
     format!(
-        "{} results · ↑/↓ move/scroll · Tab focus · Ctrl+Y copy cmd · Ctrl+O copy output · Ctrl+R rerun · q quit · F1 help",
+        "{} results · ↑/↓ move/scroll · Enter focus · Tab edit · Ctrl+Enter run · Ctrl+Y copy cmd · Ctrl+O copy output · q quit · F1 help",
         app.results.len()
     )
 }
@@ -233,11 +233,11 @@ fn draw_help(frame: &mut Frame) {
         Line::raw("type            search command and output"),
         Line::raw("↑/↓             move selection (search) / scroll output (detail)"),
         Line::raw("PgUp/PgDn       scroll output"),
-        Line::raw("Tab             switch focus (search/detail)"),
-        Line::raw("Enter           copy command (or print with --cmd-only)"),
+        Line::raw("Enter           switch focus (search/detail)"),
+        Line::raw("Tab             edit selected command (insert into prompt)"),
+        Line::raw("Ctrl+Enter      execute selected command"),
         Line::raw("Ctrl+Y / y      copy command"),
         Line::raw("Ctrl+O / Y      copy output"),
-        Line::raw("Ctrl+R / r      rerun selected command"),
         Line::raw("Esc             clear search / leave detail"),
         Line::raw("q / Ctrl+C      quit"),
         Line::raw("F1              toggle this help"),
