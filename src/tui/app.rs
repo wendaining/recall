@@ -144,14 +144,6 @@ impl App {
                 self.show_help = !self.show_help;
                 return;
             }
-            KeyCode::Up => {
-                self.move_selection(-1);
-                return;
-            }
-            KeyCode::Down => {
-                self.move_selection(1);
-                return;
-            }
             KeyCode::PageUp => {
                 self.scroll_detail(-10);
                 return;
@@ -190,6 +182,8 @@ impl App {
                 self.query.pop();
                 self.refresh();
             }
+            KeyCode::Up => self.move_selection(-1),
+            KeyCode::Down => self.move_selection(1),
             KeyCode::Esc => {
                 if self.query.is_empty() {
                     self.should_quit = true;
@@ -204,10 +198,10 @@ impl App {
 
     fn handle_detail_key(&mut self, key: KeyEvent) {
         match key.code {
-            KeyCode::Char('j') => self.scroll_detail(1),
-            KeyCode::Char('k') => self.scroll_detail(-1),
-            KeyCode::Char('g') | KeyCode::Home => self.detail_scroll = 0,
-            KeyCode::Char('G') | KeyCode::End => self.detail_scroll = u16::MAX,
+            KeyCode::Up => self.scroll_detail(-1),
+            KeyCode::Down => self.scroll_detail(1),
+            KeyCode::Home => self.detail_scroll = 0,
+            KeyCode::End => self.detail_scroll = u16::MAX,
             KeyCode::Char('y') => self.copy_command(),
             KeyCode::Char('Y') => self.copy_output(),
             KeyCode::Char('r') => self.select(Action::Rerun),
