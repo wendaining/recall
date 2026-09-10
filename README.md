@@ -49,7 +49,7 @@ Make sure `~/.local/bin` is on `PATH`.
 
 ## Setup
 
-> note
+> [!note]
 >
 > You can clone this Repo and tell your Agent:
 >
