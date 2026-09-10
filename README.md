@@ -1,31 +1,14 @@
 # recall
 
-A lightweight, Warp-Block-style shell history viewer for the terminal — a
-complement to [atuin](https://github.com/atuinsh/atuin).
+A lightweight, Warp-Block-style shell history viewer for the terminal.
+
+Inspired from [atuin](https://github.com/atuinsh/atuin).
 
 `recall` records each command together with its **output**, working directory,
 timestamp and exit code, then lets you browse that history in a TUI where every
 execution is a distinct *block*. It does not touch your terminal emulator or
 reimplement one: it is a shell-side tool that transparently proxies your shell
 through a PTY.
-
-```
-┌ recall — search ─────────────────────────────────────────────────────────┐
-│ > git                                                                │
-└──────────────────────────────────────────────────────────────────────┘
-┌ blocks (12) ──────────────────┐┌ detail ───────────────────────────────┐
-│ ───────────────────────────── ││ git status --short                    │
-│ 2026-09-10 19:36:54  25ms     ││ 2026-09-10 19:36:54  25ms  exit 0     │
-│ exit 0  ~/Projects/recall     ││ ~/Projects/recall                     │
-│ $ git commit -m "docs: ..."   ││ kind: normal  bytes: 42  lines: 2     │
-│   [main 9ad1f15] docs: ...    ││ ───────────────────────────────────── │
-│ ───────────────────────────── ││  M README.md                          │
-│ 2026-09-10 19:36:52  16ms     ││  M src/main.rs                        │
-│ exit 0  ~/Projects/recall     ││                                       │
-│ $ git add .                   ││                                       │
-└───────────────────────────────┘└───────────────────────────────────────┘
- 12 results · ↑/↓ move/scroll · Enter focus · Tab edit · Ctrl+Enter run · Ctrl+Y copy cmd · Ctrl+O copy output · q quit · F1 help
-```
 
 ## Features
 
@@ -63,6 +46,14 @@ install -Dm755 target/release/recall ~/.local/bin/recall
 Make sure `~/.local/bin` is on `PATH`.
 
 ## Setup
+
+> note
+>
+> You can clone this Repo and tell your Agent:
+>
+> ```text
+> Read the Setup part of README.md file and set it up for me.
+> ```
 
 ### 1. zsh integration
 
