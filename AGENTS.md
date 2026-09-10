@@ -63,8 +63,9 @@ shell/recall.zsh   embedded zsh integration (include_str!)
    that inserts into SQLite.
 
 The TUI renders to **stderr** on purpose: stdout carries the selected command so
-the zsh widget can capture it via `$(recall search --cmd-only)`. A rerun exits
-with code 2, which tells the widget to execute immediately.
+the zsh widget can capture it via `$(recall search --cmd-only)`. `Tab` selects
+for editing (exit 0); `Ctrl+Enter` exits with code 2, which tells the widget to
+execute immediately.
 
 ### Key invariants
 

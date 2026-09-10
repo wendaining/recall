@@ -24,7 +24,7 @@ through a PTY.
 │ exit 0  ~/Projects/recall     ││                                       │
 │ $ git add .                   ││                                       │
 └───────────────────────────────┘└───────────────────────────────────────┘
- 12 results · ↑/↓ select · Tab focus · Ctrl+Y copy cmd · Ctrl+O copy output · Ctrl+R rerun · q quit · F1 help
+ 12 results · ↑/↓ move/scroll · Enter focus · Tab edit · Ctrl+Enter run · Ctrl+Y copy cmd · Ctrl+O copy output · q quit · F1 help
 ```
 
 ## Features
@@ -113,16 +113,19 @@ Open the TUI with `recall` (or the Alt+R widget):
 | Key | Action |
 | --- | --- |
 | type | search commands and output |
-| `↑` / `↓`, `Ctrl+P` / `Ctrl+N` | move selection |
-| `Tab` | switch focus between search and detail |
-| `Enter` | copy command (or print it with `--cmd-only`) |
+| `↑` / `↓` | move selection (search) / scroll output (detail) |
+| `Enter` | switch focus between search and detail |
+| `Tab` | edit selected command (insert into the prompt) |
+| `Ctrl+Enter` | execute selected command |
 | `Ctrl+Y` / `y` | copy command |
 | `Ctrl+O` / `Y` | copy output |
-| `Ctrl+R` / `r` | rerun selected command |
-| `PgUp` / `PgDn`, `j` / `k`, `g` / `G` | scroll output |
+| `PgUp` / `PgDn`, `Home` / `End` | scroll output |
 | `Esc` | clear search / leave detail |
 | `q` / `Ctrl+C` | quit |
 | `F1` | toggle help |
+
+> `Tab` and `Ctrl+Enter` need the shell widget (`recall search --cmd-only`).
+> `Ctrl+Enter` requires a terminal that reports it distinctly (kitty does).
 
 Other commands:
 

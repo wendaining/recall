@@ -123,7 +123,7 @@ _recall_search() {
     BUFFER=$recall_output
     CURSOR=${#BUFFER}
     if [[ $recall_status -eq 2 ]]; then
-      # User pressed Ctrl+R in the TUI: execute immediately.
+      # User pressed Ctrl+Enter in the TUI: execute immediately.
       zle accept-line
     else
       zle reset-prompt
