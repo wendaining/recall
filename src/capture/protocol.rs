@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-/// Messages sent by the shell integration to the proxy over the control socket.
-/// One JSON object per line.
-#[derive(Debug, Deserialize)]
+/// Control messages emitted by the shell integration as private OSC 9999
+/// payloads and parsed by the proxy.
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum Request {
     /// A command is about to run; begin capturing output.
@@ -24,27 +24,4 @@ pub enum Request {
         #[serde(default)]
         duration_ns: Option<i64>,
     },
-}
-
-#[derive(Debug, Serialize)]
-pub struct Response {
-    pub ok: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}
-
-impl Response {
-    pub fn ok() -> Self {
-        Self {
-            ok: true,
-            error: None,
-        }
-    }
-
-    pub fn err(message: impl Into<String>) -> Self {
-        Self {
-            ok: false,
-            error: Some(message.into()),
-        }
-    }
 }

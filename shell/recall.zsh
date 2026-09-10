@@ -4,14 +4,14 @@
 #     eval "$(recall init zsh)"
 #
 # When running under `recall shell` (RECALL_PROXY_ACTIVE=1), command metadata is
-# sent to the proxy over a per-session Unix socket so output can be captured.
-# Otherwise a metadata-only record is written in the background.
+# written as private OSC markers straight into the terminal stream, where the
+# proxy parses and strips them. Otherwise a metadata-only record is written in
+# the background.
 
 [[ -o interactive ]] || return 0
 
 autoload -U add-zsh-hook
 zmodload zsh/datetime 2>/dev/null
-zmodload zsh/net/socket 2>/dev/null
 
 typeset -g RECALL_SESSION="${RECALL_SESSION:-$(command recall uuid 2>/dev/null)}"
 typeset -g RECALL_ACTIVE_ID=""
@@ -32,6 +32,22 @@ _recall_json_escape() {
   s=${s//$'\n'/\\n}
   s=${s//$'\r'/\\r}
   s=${s//$'\t'/\\t}
+  s=${s//$'\b'/\\b}
+  s=${s//$'\f'/\\f}
+  # Escape any remaining control characters so the payload stays valid JSON and
+  # never contains a raw BEL/ESC that would terminate the OSC marker early.
+  if [[ $s == *[[:cntrl:]]* ]]; then
+    local out='' ch
+    local -i i
+    for (( i=1; i<=${#s}; i++ )); do
+      ch=${s[i]}
+      if [[ $ch == [[:cntrl:]] ]]; then
+        printf -v ch '\\u%04x' "'$ch"
+      fi
+      out+=$ch
+    done
+    s=$out
+  fi
   REPLY=$s
 }
 
@@ -42,19 +58,10 @@ _recall_should_skip() {
   return 1
 }
 
-_recall_send() {
-  [[ -n $RECALL_SOCK ]] || return 1
-  [[ -S $RECALL_SOCK ]] || return 1
-  zsocket "$RECALL_SOCK" 2>/dev/null || return 1
-  local fd=$REPLY
-  if ! print -u $fd -r -- "$1" 2>/dev/null; then
-    exec {fd}>&-
-    return 1
-  fi
-  local reply
-  read -t 1 -r -u $fd reply 2>/dev/null
-  exec {fd}>&-
-  return 0
+# Emit a private OSC marker carrying a JSON control message. `-r` keeps the
+# JSON escapes literal.
+_recall_emit() {
+  print -rn -- $'\e]9999;'"$1"$'\a'
 }
 
 _recall_preexec() {
@@ -73,8 +80,7 @@ _recall_preexec() {
   _recall_json_escape "$cmd"; esc_cmd=$REPLY
   _recall_json_escape "$PWD"; esc_cwd=$REPLY
   printf -v started_ns %.0f $(( EPOCHREALTIME * 1000000000 ))
-  local payload="{\"type\":\"start\",\"id\":\"$RECALL_ACTIVE_ID\",\"command\":\"$esc_cmd\",\"cwd\":\"$esc_cwd\",\"started_at\":$started_ns}"
-  _recall_send "$payload" || RECALL_ACTIVE_ID=""
+  _recall_emit "{\"type\":\"start\",\"id\":\"$RECALL_ACTIVE_ID\",\"command\":\"$esc_cmd\",\"cwd\":\"$esc_cwd\",\"started_at\":$started_ns}"
 }
 
 _recall_precmd() {
@@ -85,11 +91,9 @@ _recall_precmd() {
     if [[ -n $RECALL_LAST_START ]]; then
       printf -v duration_ns %.0f $(( (EPOCHREALTIME - RECALL_LAST_START) * 1000000000 ))
     fi
-    local payload="{\"type\":\"end\",\"id\":\"$RECALL_ACTIVE_ID\",\"exit\":$exit_code${duration_ns:+,\"duration_ns\":$duration_ns}}"
-    # In-band marker so the proxy stops capturing at the exact boundary and
-    # does not attribute the next prompt to this command.
-    print -n -- $'\e]9999;recall-end\a'
-    _recall_send "$payload"
+    # In-band end marker: the proxy stops capturing exactly here, before the
+    # next prompt is drawn.
+    _recall_emit "{\"type\":\"end\",\"id\":\"$RECALL_ACTIVE_ID\",\"exit\":$exit_code${duration_ns:+,\"duration_ns\":$duration_ns}}"
     RECALL_ACTIVE_ID=""
   elif [[ -z $RECALL_PROXY_ACTIVE && -n $RECALL_LAST_CMD ]]; then
     local duration_ns=""
@@ -115,7 +119,7 @@ _recall_search() {
 
   # NB: `status` is a read-only special parameter in zsh; do not use it here.
   local recall_output recall_status
-  recall_output=$(command recall search --cmd-only 2>/dev/tty)
+  recall_output=$(command recall search --cmd-only)
   recall_status=$?
 
   zle reset-prompt
