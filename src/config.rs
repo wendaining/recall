@@ -40,8 +40,6 @@ pub struct Proxy {
     pub exclude: Vec<String>,
     /// Mark alt-screen programs as `interactive` and skip their output.
     pub mark_interactive: bool,
-    /// Enable the secrets filter.
-    pub secrets_filter: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -89,7 +87,6 @@ impl Default for Proxy {
             shell: String::new(),
             exclude: vec![r"^\s*recall\b".to_string(), r"^\s*atuin\b".to_string()],
             mark_interactive: true,
-            secrets_filter: true,
         }
     }
 }

@@ -21,8 +21,6 @@ pub enum BlockKind {
     Redirected,
     /// Capture was not active (proxy disabled or failed).
     Unavailable,
-    /// Output matched a secret filter and was not stored.
-    Filtered,
 }
 
 impl BlockKind {
@@ -34,7 +32,6 @@ impl BlockKind {
             BlockKind::Binary => "binary",
             BlockKind::Redirected => "redirected",
             BlockKind::Unavailable => "unavailable",
-            BlockKind::Filtered => "filtered",
         }
     }
 }
@@ -56,7 +53,6 @@ impl FromStr for BlockKind {
             "binary" => BlockKind::Binary,
             "redirected" => BlockKind::Redirected,
             "unavailable" => BlockKind::Unavailable,
-            "filtered" => BlockKind::Filtered,
             _ => return Err(()),
         })
     }

@@ -258,7 +258,6 @@ fn kind_label(kind: BlockKind) -> &'static str {
         BlockKind::Binary => "binary output (skipped)",
         BlockKind::Redirected => "output redirected",
         BlockKind::Unavailable => "output unavailable",
-        BlockKind::Filtered => "output filtered",
     }
 }
 

@@ -12,10 +12,9 @@ use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
 use crate::capture::classifier::{self, ClassifyInput};
 use crate::capture::marker::{Feed, MarkerFilter, Op};
 use crate::capture::protocol::Request;
-use crate::capture::secrets;
 use crate::config::Config;
 use crate::db::{Db, queries};
-use crate::model::{Block, BlockKind};
+use crate::model::Block;
 use crate::util;
 
 /// In-flight capture for a single command.
@@ -231,21 +230,13 @@ fn finalize(
     shared: &Arc<Shared>,
 ) -> Block {
     let interactive = classifier::detect_interactive(&active.buffer);
-    let mut classified = classifier::classify(ClassifyInput {
+    let classified = classifier::classify(ClassifyInput {
         raw: &active.buffer,
         interactive,
         max_output_bytes: shared.config.general.max_output_bytes,
         strip_ansi: shared.config.general.strip_ansi,
         mark_interactive: shared.config.proxy.mark_interactive,
     });
-
-    if shared.config.proxy.secrets_filter && looks_secret(&active.command, &classified.output) {
-        classified = classifier::Classified {
-            kind: BlockKind::Filtered,
-            output: None,
-            truncated: false,
-        };
-    }
 
     let output_lines = classified
         .output
@@ -280,16 +271,6 @@ fn build_exclude(patterns: &[String]) -> regex::RegexSet {
         .filter(|pattern| regex::Regex::new(pattern).is_ok())
         .collect();
     regex::RegexSet::new(valid).unwrap_or_else(|_| regex::RegexSet::new([r"$^"]).unwrap())
-}
-
-fn looks_secret(command: &str, output: &Option<Vec<u8>>) -> bool {
-    if secrets::contains_secret(command) {
-        return true;
-    }
-    match output {
-        Some(bytes) => secrets::contains_secret(&String::from_utf8_lossy(bytes)),
-        None => false,
-    }
 }
 
 fn spawn_writer(rx: Receiver<Block>, db_path: PathBuf, shared: Arc<Shared>) {
