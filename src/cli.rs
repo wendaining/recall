@@ -64,7 +64,7 @@ pub struct ProxyArgs {
 #[derive(Debug, Args)]
 pub struct InitArgs {
     /// Shell to emit integration for.
-    #[arg(value_parser = ["zsh"])]
+    #[arg(value_parser = ["zsh", "bash", "fish"])]
     pub shell: String,
 }
 
@@ -82,6 +82,9 @@ pub struct RecordArgs {
     pub atuin_id: Option<String>,
     #[arg(long)]
     pub session: Option<String>,
+    /// Shell name recorded with the block.
+    #[arg(long)]
+    pub shell: Option<String>,
 }
 
 #[derive(Debug, Args)]

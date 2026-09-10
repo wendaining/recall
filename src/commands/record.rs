@@ -20,7 +20,7 @@ pub fn run(args: RecordArgs) -> Result<()> {
             .session
             .or_else(|| std::env::var("RECALL_SESSION").ok()),
         hostname: util::resolved_hostname(&config),
-        shell: Some("zsh".to_string()),
+        shell: Some(args.shell.unwrap_or_else(|| "zsh".to_string())),
         command: args.command,
         cwd: args.cwd.or_else(|| {
             std::env::current_dir()

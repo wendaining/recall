@@ -57,6 +57,7 @@ struct Shared {
     state: Mutex<CaptureState>,
     config: Arc<Config>,
     session: String,
+    shell: String,
     hostname: Option<String>,
     exclude: regex::RegexSet,
     tx: Sender<Block>,
@@ -70,11 +71,18 @@ pub fn run(config: Arc<Config>, shell: String) -> Result<i32> {
         .filter(|s| !s.is_empty())
         .unwrap_or_else(crate::commands::new_id);
 
+    let shell_name = std::path::Path::new(&shell)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("sh")
+        .to_string();
+
     let (tx, rx) = mpsc::channel::<Block>();
     let shared = Arc::new(Shared {
         state: Mutex::new(CaptureState::default()),
         config: config.clone(),
         session: session.clone(),
+        shell: shell_name,
         hostname: util::resolved_hostname(&config),
         exclude: build_exclude(&config.proxy.exclude),
         tx,
@@ -250,7 +258,7 @@ fn finalize(
         atuin_id: active.atuin_id,
         session: Some(shared.session.clone()),
         hostname: shared.hostname.clone(),
-        shell: Some(shell_name(&shared.config).to_string()),
+        shell: Some(shared.shell.clone()),
         command: active.command,
         cwd: active.cwd,
         started_at: active.started_at,
@@ -262,19 +270,6 @@ fn finalize(
         output_truncated: classified.truncated || active.truncated,
         kind: classified.kind,
         created_at: util::now_ns(),
-    }
-}
-
-fn shell_name(config: &Config) -> &'static str {
-    let configured = config.proxy.shell.as_str();
-    if configured.contains("bash") {
-        "bash"
-    } else if configured.contains("fish") {
-        "fish"
-    } else if configured.contains("pwsh") || configured.contains("powershell") {
-        "powershell"
-    } else {
-        "zsh"
     }
 }
 
