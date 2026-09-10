@@ -1,0 +1,90 @@
+mod doctor;
+
+use anyhow::{Result, bail};
+
+use crate::cli::{
+    Cli, Command, ConfigAction, ConfigArgs, ImportArgs, InitArgs, ProxyArgs, RecordArgs,
+    SearchArgs, ShellArgs,
+};
+use crate::config::Config;
+use crate::db::{Db, queries};
+use crate::util;
+
+pub fn run(cli: Cli) -> Result<()> {
+    match cli.command {
+        None => search(SearchArgs {
+            query: None,
+            cmd_only: false,
+        }),
+        Some(Command::Search(args)) => search(args),
+        Some(Command::Shell(args)) => shell(args),
+        Some(Command::Proxy(args)) => proxy(args),
+        Some(Command::Init(args)) => init(args),
+        Some(Command::Record(args)) => record(args),
+        Some(Command::Import(args)) => import(args),
+        Some(Command::Doctor) => doctor::run(),
+        Some(Command::Prune) => prune(),
+        Some(Command::Config(args)) => config(args),
+        Some(Command::Uuid) => {
+            println!("{}", new_id());
+            Ok(())
+        }
+    }
+}
+
+/// Generate a new sortable identifier (ULID).
+pub fn new_id() -> String {
+    ulid::Ulid::generate().to_string()
+}
+
+fn config(args: ConfigArgs) -> Result<()> {
+    match args.action {
+        ConfigAction::Path => {
+            println!("{}", Config::config_path().display());
+        }
+        ConfigAction::Show => {
+            let cfg = Config::load()?;
+            print!("{}", toml::to_string_pretty(&cfg)?);
+        }
+        ConfigAction::Default => {
+            let cfg = Config::default();
+            print!("{}", toml::to_string_pretty(&cfg)?);
+        }
+    }
+    Ok(())
+}
+
+fn prune() -> Result<()> {
+    let cfg = Config::load()?;
+    let db = Db::open(&cfg.general.db_path)?;
+    let affected = queries::prune(&db.conn, cfg.retention.retention_days, util::now_ns())?;
+    println!(
+        "pruned output from {affected} block(s) older than {} day(s)",
+        cfg.retention.retention_days
+    );
+    Ok(())
+}
+
+fn search(_args: SearchArgs) -> Result<()> {
+    bail!("TUI is not implemented yet (planned for M2)")
+}
+
+fn shell(_args: ShellArgs) -> Result<()> {
+    bail!("`recall shell` is not implemented yet (planned for M1)")
+}
+
+fn proxy(_args: ProxyArgs) -> Result<()> {
+    bail!("`recall proxy` is not implemented yet (planned for M1)")
+}
+
+fn init(_args: InitArgs) -> Result<()> {
+    bail!("`recall init` is not implemented yet (planned for M1)")
+}
+
+fn record(_args: RecordArgs) -> Result<()> {
+    bail!("`recall record` is not implemented yet (planned for M1)")
+}
+
+fn import(_args: ImportArgs) -> Result<()> {
+    bail!("`recall import` is not implemented yet (planned for M3)")
+}
