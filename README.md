@@ -10,6 +10,8 @@ execution is a distinct *block*. It does not touch your terminal emulator or
 reimplement one: it is a shell-side tool that transparently proxies your shell
 through a PTY.
 
+<img zoom="35%" alt="recall-display" src="https://github.com/user-attachments/assets/835ef068-b4d9-41e2-b5a6-738d5d58f01f" />
+
 ## Features
 
 - **Output capture** via a PTY proxy, so colors, `isatty`, and interactive
