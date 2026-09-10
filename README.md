@@ -93,25 +93,17 @@ Either start a wrapped shell manually:
 recall shell
 ```
 
-or re-exec automatically from your shell startup file. For zsh, put this at the
-very top of `~/.zshrc` (before anything heavy, so startup work is not repeated):
-
-```zsh
-if [[ -o interactive ]] && [[ -t 0 ]] && [[ -t 1 ]] && [[ -z "${RECALL_PROXY_ACTIVE:-}" ]]; then
-  command -v recall >/dev/null 2>&1 && exec recall shell
-fi
-```
-
-or configure your terminal emulator to launch it as the shell. The setting
-name varies between emulators (`shell`, `command`, …), for example:
+or configure your terminal emulator to launch it as the shell, so every new
+window is captured automatically. The setting name varies between emulators
+(`shell`, `command`, …), for example:
 
 ```
 # in your terminal emulator's config file
 shell /home/you/.local/bin/recall shell
 ```
 
-`recall shell` falls back to a plain shell if the terminal is not a TTY or if
-`RECALL_PROXY=0` is set.
+`recall shell` falls back to a plain shell if the terminal is not a TTY, if
+`RECALL_PROXY=0` is set, or if the proxy fails to start.
 
 ### 3. Import existing atuin history (optional)
 
