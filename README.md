@@ -2,7 +2,7 @@
 
 A lightweight, Warp-Block-style shell history viewer for the terminal.
 
-Inspired from [atuin](https://github.com/atuinsh/atuin).
+Inspired from [Warp](https://www.warp.dev/) and [atuin](https://github.com/atuinsh/atuin).
 
 `recall` records each command together with its **output**, working directory,
 timestamp and exit code, then lets you browse that history in a TUI where every
