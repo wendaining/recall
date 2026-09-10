@@ -1,7 +1,6 @@
 pub mod queries;
 pub mod schema;
 
-use std::io::Write;
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -26,6 +25,7 @@ impl Db {
     }
 
     /// In-memory database, used by tests.
+    #[cfg(test)]
     pub fn open_in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
         schema::migrate(&conn)?;
@@ -42,12 +42,4 @@ pub fn compress(data: &[u8]) -> Result<Vec<u8>> {
 
 pub fn decompress(data: &[u8]) -> Result<Vec<u8>> {
     zstd::stream::decode_all(data).context("zstd decompress")
-}
-
-/// Write `data` to `path` atomically-ish (used for debug dumps).
-pub fn write_file(path: &Path, data: &[u8]) -> Result<()> {
-    let mut f = std::fs::File::create(path)
-        .with_context(|| format!("creating {}", path.display()))?;
-    f.write_all(data)?;
-    Ok(())
 }

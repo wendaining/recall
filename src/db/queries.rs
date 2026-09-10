@@ -41,7 +41,6 @@ fn row_to_block(row: &Row<'_>, full_output: bool) -> rusqlite::Result<Block> {
         duration_ns: row.get("duration_ns")?,
         exit_code: row.get("exit_code")?,
         output,
-        output_codec: row.get("output_codec")?,
         output_bytes: row.get("output_bytes")?,
         output_lines: row.get("output_lines")?,
         output_truncated: row.get::<_, i64>("output_truncated")? != 0,
@@ -245,7 +244,7 @@ mod tests {
         assert_eq!(got.command, "echo hello");
         assert_eq!(got.output.as_deref(), Some(b"hello\nworld\n".as_slice()));
         assert_eq!(got.exit_code, Some(0));
-        assert!(got.has_output());
+        assert!(got.output.is_some());
     }
 
     #[test]

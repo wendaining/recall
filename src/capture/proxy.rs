@@ -295,7 +295,6 @@ fn finalize(
         duration_ns,
         exit_code: exit,
         output: classified.output,
-        output_codec: None,
         output_bytes: active.total as i64,
         output_lines,
         output_truncated: classified.truncated || active.truncated,

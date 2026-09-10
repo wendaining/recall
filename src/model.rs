@@ -80,17 +80,9 @@ pub struct Block {
     pub duration_ns: Option<i64>,
     pub exit_code: Option<i32>,
     pub output: Option<Vec<u8>>,
-    pub output_codec: Option<String>,
     pub output_bytes: i64,
     pub output_lines: i64,
     pub output_truncated: bool,
     pub kind: BlockKind,
     pub created_at: i64,
-}
-
-impl Block {
-    /// Whether this block has stored output worth showing.
-    pub fn has_output(&self) -> bool {
-        self.output_bytes > 0 && self.kind == BlockKind::Normal
-    }
 }

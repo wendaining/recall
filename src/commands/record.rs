@@ -29,7 +29,6 @@ pub fn run(args: RecordArgs) -> Result<()> {
         duration_ns: args.duration_ns,
         exit_code: args.exit,
         output: None,
-        output_codec: None,
         output_bytes: 0,
         output_lines: 0,
         output_truncated: false,

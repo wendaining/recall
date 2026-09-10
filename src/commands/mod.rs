@@ -66,8 +66,9 @@ fn prune() -> Result<()> {
     Ok(())
 }
 
-fn search(_args: SearchArgs) -> Result<()> {
-    bail!("TUI is not implemented yet (planned for M2)")
+fn search(args: SearchArgs) -> Result<()> {
+    let config = Config::load()?;
+    crate::tui::run(args, config)
 }
 
 fn import(_args: ImportArgs) -> Result<()> {
