@@ -91,9 +91,11 @@ Either start a wrapped shell manually:
 recall shell
 ```
 
-or make kitty do it for you by adding to `~/.config/kitty/kitty.conf`:
+or configure your terminal emulator to launch it as the shell. The setting
+name varies between emulators (`shell`, `command`, …), for example:
 
 ```
+# in your terminal emulator's config file
 shell /home/you/.local/bin/recall shell
 ```
 
@@ -121,7 +123,7 @@ Open the TUI with `recall` (or the Alt+R widget):
 | `Enter` | switch focus between search and detail |
 | `Tab` | edit selected command (insert into the prompt) |
 | `Ctrl+Enter` | execute selected command |
-| `Ctrl+E` | execute (fallback for terminals without the kitty protocol) |
+| `Ctrl+E` | execute (fallback for terminals that don't report Ctrl+Enter distinctly) |
 | `Ctrl+Y` / `y` | copy command |
 | `Ctrl+O` / `Y` | copy output |
 | `PgUp` / `PgDn`, `Home` / `End` | scroll output |
@@ -130,7 +132,8 @@ Open the TUI with `recall` (or the Alt+R widget):
 | `F1` | toggle help |
 
 > `Tab` and `Ctrl+Enter` need the shell widget (`recall search --cmd-only`).
-> `Ctrl+Enter` requires a terminal that reports it distinctly (kitty does).
+> `Ctrl+Enter` requires a terminal emulator that reports it distinctly; use
+> `Ctrl+E` otherwise.
 
 Other commands:
 
@@ -167,7 +170,7 @@ backend = "auto"             # auto | arboard | osc52 | wl-copy | xclip | xsel
 ## How it works
 
 ```
-kitty ──▶ recall proxy (PTY) ──▶ zsh (+ recall.zsh hooks)
+terminal emulator ──▶ recall proxy (PTY) ──▶ shell (zsh/bash/fish)
               │  byte stream: captured output + in-band OSC markers
               ▼
        recall.db (SQLite, WAL)  ◀── recall TUI
@@ -192,11 +195,11 @@ with crossterm, so it works in any VT-compatible terminal. The only per-terminal
 differences are clipboard support and whether `Ctrl+Enter` can be reported
 distinctly (`Ctrl+E` is the fallback).
 
-| Platform | Shells | Terminals | Notes |
+| Platform | Shells | Terminal emulator | Notes |
 | --- | --- | --- | --- |
-| Linux | zsh, bash, fish | kitty, Ghostty, Konsole, GNOME Terminal, … | full support |
-| macOS | zsh, bash, fish | Ghostty, kitty, Terminal.app, iTerm2 | Terminal.app: clipboard via `pbcopy`, use `Ctrl+E` to execute |
-| Windows | — | Windows Terminal | build-only for now; use WSL for full functionality |
+| Linux | zsh, bash, fish | any VT-compatible (Konsole, GNOME Terminal, Ghostty, …) | full support |
+| macOS | zsh, bash, fish | any VT-compatible (Terminal.app, iTerm2, Ghostty, …) | Terminal.app: clipboard via `pbcopy`, use `Ctrl+E` to execute |
+| Windows | — | any VT-compatible (Windows Terminal, …) | build-only for now; use WSL for full functionality |
 
 Clipboard backends are chosen automatically: `wl-copy` (Wayland), `xclip`/`xsel`
 (X11), `pbcopy` (macOS), `clip` (Windows), then native `arboard`, then OSC 52.

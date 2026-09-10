@@ -8,7 +8,8 @@ Guidance for agents and contributors working on `recall`.
 It captures command **output** (which atuin does not store) by running the shell
 under a PTY proxy, stores everything in SQLite, and presents it in a ratatui TUI.
 
-Target platform: Linux + zsh + kitty.
+Target platform: Linux and macOS, zsh/bash/fish, any VT-compatible terminal
+emulator.
 
 ## Commands
 
