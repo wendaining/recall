@@ -131,9 +131,11 @@ impl Config {
     }
 
     /// Load configuration from the default path, falling back to defaults if
-    /// the file does not exist.
+    /// the file does not exist. `RECALL_CONFIG` overrides the path.
     pub fn load() -> Result<Self> {
-        let path = Self::config_path();
+        let path = std::env::var_os("RECALL_CONFIG")
+            .map(PathBuf::from)
+            .unwrap_or_else(Self::config_path);
         if !path.exists() {
             return Ok(Self::default());
         }
@@ -163,4 +165,9 @@ pub fn default_atuin_db_path() -> PathBuf {
 /// Runtime directory used for per-session control sockets.
 pub fn runtime_dir() -> PathBuf {
     dirs::runtime_dir().unwrap_or_else(std::env::temp_dir)
+}
+
+/// Directory holding recall's per-session control sockets.
+pub fn recall_runtime_dir() -> PathBuf {
+    runtime_dir().join("recall")
 }

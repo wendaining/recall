@@ -1,11 +1,12 @@
 mod doctor;
+mod init;
+mod proxy;
+mod record;
+mod shell;
 
 use anyhow::{Result, bail};
 
-use crate::cli::{
-    Cli, Command, ConfigAction, ConfigArgs, ImportArgs, InitArgs, ProxyArgs, RecordArgs,
-    SearchArgs, ShellArgs,
-};
+use crate::cli::{Cli, Command, ConfigAction, ConfigArgs, ImportArgs, SearchArgs};
 use crate::config::Config;
 use crate::db::{Db, queries};
 use crate::util;
@@ -17,10 +18,10 @@ pub fn run(cli: Cli) -> Result<()> {
             cmd_only: false,
         }),
         Some(Command::Search(args)) => search(args),
-        Some(Command::Shell(args)) => shell(args),
-        Some(Command::Proxy(args)) => proxy(args),
-        Some(Command::Init(args)) => init(args),
-        Some(Command::Record(args)) => record(args),
+        Some(Command::Shell(args)) => shell::run(args),
+        Some(Command::Proxy(args)) => proxy::run(args),
+        Some(Command::Init(args)) => init::run(args),
+        Some(Command::Record(args)) => record::run(args),
         Some(Command::Import(args)) => import(args),
         Some(Command::Doctor) => doctor::run(),
         Some(Command::Prune) => prune(),
@@ -67,22 +68,6 @@ fn prune() -> Result<()> {
 
 fn search(_args: SearchArgs) -> Result<()> {
     bail!("TUI is not implemented yet (planned for M2)")
-}
-
-fn shell(_args: ShellArgs) -> Result<()> {
-    bail!("`recall shell` is not implemented yet (planned for M1)")
-}
-
-fn proxy(_args: ProxyArgs) -> Result<()> {
-    bail!("`recall proxy` is not implemented yet (planned for M1)")
-}
-
-fn init(_args: InitArgs) -> Result<()> {
-    bail!("`recall init` is not implemented yet (planned for M1)")
-}
-
-fn record(_args: RecordArgs) -> Result<()> {
-    bail!("`recall record` is not implemented yet (planned for M1)")
 }
 
 fn import(_args: ImportArgs) -> Result<()> {
