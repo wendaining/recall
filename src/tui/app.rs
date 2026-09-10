@@ -15,6 +15,15 @@ pub enum Focus {
     Detail,
 }
 
+/// What the shell widget should do with the selected command after the TUI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Action {
+    /// Insert the command into the prompt for editing.
+    Edit,
+    /// Execute the command immediately.
+    Rerun,
+}
+
 pub struct App {
     pub db: Db,
     pub config: Config,
@@ -29,6 +38,7 @@ pub struct App {
     pub cmd_only: bool,
     /// Command to print after the TUI exits (selection / rerun).
     pub selected_command: Option<String>,
+    pub action: Action,
     pub status: Option<String>,
     pub status_is_error: bool,
     pub should_quit: bool,
@@ -52,6 +62,7 @@ impl App {
             focus: Focus::Search,
             cmd_only,
             selected_command: None,
+            action: Action::Edit,
             status: None,
             status_is_error: false,
             should_quit: false,
@@ -116,6 +127,10 @@ impl App {
             }
             KeyCode::Char('o') if ctrl => {
                 self.copy_output();
+                return;
+            }
+            KeyCode::Char('r') if ctrl => {
+                self.select(Action::Rerun);
                 return;
             }
             KeyCode::F(1) => {
@@ -196,7 +211,7 @@ impl App {
             KeyCode::Char('G') | KeyCode::End => self.detail_scroll = u16::MAX,
             KeyCode::Char('y') => self.copy_command(),
             KeyCode::Char('Y') => self.copy_output(),
-            KeyCode::Char('r') => self.select_for_rerun(),
+            KeyCode::Char('r') => self.select(Action::Rerun),
             KeyCode::Char('q') | KeyCode::Esc => self.focus = Focus::Search,
             _ => {}
         }
@@ -209,15 +224,16 @@ impl App {
 
     fn accept(&mut self) {
         if self.cmd_only {
-            self.select_for_rerun();
+            self.select(Action::Edit);
         } else {
             self.copy_command();
         }
     }
 
-    fn select_for_rerun(&mut self) {
+    fn select(&mut self, action: Action) {
         if let Some(block) = self.results.get(self.selected) {
             self.selected_command = Some(block.command.clone());
+            self.action = action;
             self.should_quit = true;
         }
     }

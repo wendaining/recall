@@ -113,15 +113,20 @@ _recall_search() {
   emulate -L zsh
   zle -I
 
-  local output
+  local output status
   output=$(command recall search --cmd-only 2>/dev/tty)
-  local status=$?
+  status=$?
 
   zle reset-prompt
-  if [[ $status -eq 0 && -n $output ]]; then
+  if [[ -n $output ]]; then
     BUFFER=$output
     CURSOR=${#BUFFER}
-    zle reset-prompt
+    if [[ $status -eq 2 ]]; then
+      # User pressed 'r' in the TUI: execute immediately.
+      zle accept-line
+    else
+      zle reset-prompt
+    fi
   fi
 }
 

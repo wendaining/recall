@@ -1696,6 +1696,7 @@ dependencies = [
  "libc",
  "portable-pty",
  "ratatui",
+ "regex",
  "rusqlite",
  "serde",
  "serde_json",

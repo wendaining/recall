@@ -1,12 +1,13 @@
 mod doctor;
+mod import;
 mod init;
 mod proxy;
 mod record;
 mod shell;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 
-use crate::cli::{Cli, Command, ConfigAction, ConfigArgs, ImportArgs, SearchArgs};
+use crate::cli::{Cli, Command, ConfigAction, ConfigArgs, SearchArgs};
 use crate::config::Config;
 use crate::db::{Db, queries};
 use crate::util;
@@ -22,7 +23,7 @@ pub fn run(cli: Cli) -> Result<()> {
         Some(Command::Proxy(args)) => proxy::run(args),
         Some(Command::Init(args)) => init::run(args),
         Some(Command::Record(args)) => record::run(args),
-        Some(Command::Import(args)) => import(args),
+        Some(Command::Import(args)) => import::run(args),
         Some(Command::Doctor) => doctor::run(),
         Some(Command::Prune) => prune(),
         Some(Command::Config(args)) => config(args),
@@ -68,9 +69,9 @@ fn prune() -> Result<()> {
 
 fn search(args: SearchArgs) -> Result<()> {
     let config = Config::load()?;
-    crate::tui::run(args, config)
-}
-
-fn import(_args: ImportArgs) -> Result<()> {
-    bail!("`recall import` is not implemented yet (planned for M3)")
+    let code = crate::tui::run(args, config)?;
+    if code != 0 {
+        std::process::exit(code);
+    }
+    Ok(())
 }

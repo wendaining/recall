@@ -15,7 +15,7 @@ use ratatui::backend::CrosstermBackend;
 
 use crate::cli::SearchArgs;
 use crate::config::Config;
-use app::App;
+use app::{Action, App};
 
 type Backend = CrosstermBackend<io::Stderr>;
 
@@ -24,7 +24,10 @@ type Backend = CrosstermBackend<io::Stderr>;
 /// The interface is drawn to **stderr** so that stdout stays clean: any
 /// selected command is printed to stdout after the terminal is restored, which
 /// lets shell widgets capture it via `$(recall search --cmd-only)`.
-pub fn run(args: SearchArgs, config: Config) -> Result<()> {
+///
+/// Returns an exit code: 0 for a normal edit selection, 2 when the user asked
+/// to rerun the command.
+pub fn run(args: SearchArgs, config: Config) -> Result<i32> {
     let mut app = App::new(config, args.cmd_only, args.query)?;
 
     let mut guard = TerminalGuard::enter()?;
@@ -33,10 +36,16 @@ pub fn run(args: SearchArgs, config: Config) -> Result<()> {
 
     result?;
 
+    let mut code = 0;
     if let Some(command) = app.selected_command {
         println!("{command}");
+        use std::io::Write;
+        let _ = io::stdout().flush();
+        if app.action == Action::Rerun {
+            code = 2;
+        }
     }
-    Ok(())
+    Ok(code)
 }
 
 fn event_loop(terminal: &mut Terminal<Backend>, app: &mut App) -> Result<()> {
