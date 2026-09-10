@@ -156,19 +156,19 @@ backend = "auto"             # auto | arboard | osc52 | wl-copy | xclip | xsel
 
 ```
 kitty ──▶ recall proxy (PTY) ──▶ zsh (+ recall.zsh hooks)
-              │  control socket: command metadata, exit code
-              │  byte stream: captured output, in-band end marker
+              │  byte stream: captured output + in-band OSC markers
               ▼
        recall.db (SQLite, WAL)  ◀── recall TUI
 ```
 
 - The proxy spawns your shell on a PTY and forwards bytes in both directions, so
   the terminal experience is unchanged.
-- `preexec` sends `{command, cwd, start}` to the proxy over a Unix socket and
-  waits for an acknowledgement, so capture starts before the command runs.
-- `precmd` writes a private in-band end marker (`ESC ] 9999 ; recall-end BEL`)
-  that the proxy strips, then sends `{exit, duration}`. The in-band marker gives
-  an exact output boundary, so the next prompt is never captured.
+- `preexec` writes an in-band start marker carrying `{command, cwd, start}` as a
+  private OSC sequence (`ESC ] 9999 ; {...} BEL`); `precmd` writes the matching
+  end marker with the exit code before the prompt is drawn.
+- The proxy parses and strips these markers, so command boundaries are exact and
+  the next prompt is never captured. There is no side channel or socket, which
+  keeps recall shell- and OS-agnostic.
 - Output is ANSI-stripped, classified, capped, zstd-compressed and stored in
   SQLite. Command metadata is stored redundantly and linked to atuin by
   `atuin_id`.

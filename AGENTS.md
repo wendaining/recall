@@ -35,9 +35,9 @@ src/
     schema.rs      SQLite schema v1 + migrations + FTS5 trigram
     queries.rs     insert / search / get / prune
   capture/
-    proxy.rs       PTY proxy, control-socket listener, async writer
-    protocol.rs    newline-delimited JSON control messages
-    marker.rs      streaming private-OSC end-marker stripper
+    proxy.rs       PTY proxy, marker dispatch, async writer
+    protocol.rs    control messages (start/end)
+    marker.rs      streaming private-OSC marker parser
     classifier.rs  ANSI strip + normal/empty/interactive/binary classification
     secrets.rs     best-effort secret detection
   clipboard/       Clipboard trait + arboard / OSC52 / external backends
@@ -51,16 +51,19 @@ shell/recall.zsh   embedded zsh integration (include_str!)
 
 ### Capture flow
 
-1. `recall shell` -> `capture::proxy::run` opens a PTY, spawns the shell with
-   `RECALL_PROXY_ACTIVE=1`, `RECALL_SOCK=<path>`, `RECALL_SESSION=<id>`.
-2. zsh `preexec` sends a `start` message over the socket and waits for ack, so
-   the proxy is capturing before the command runs.
+1. `recall shell` -> `capture::proxy::run` opens a PTY and spawns the shell with
+   `RECALL_PROXY_ACTIVE=1` and `RECALL_SESSION=<id>`.
+2. zsh `preexec` writes an in-band start marker carrying the command metadata:
+   `ESC ] 9999 ; {"type":"start",...} BEL`.
 3. The proxy forwards PTY bytes to stdout and appends them to the active buffer.
-4. zsh `precmd` writes `ESC ] 9999 ; recall-end BEL` (in-band, before the
-   prompt) and sends an `end` message with the exit code.
-5. `marker::MarkerFilter` strips the marker and stops capture exactly at the
-   boundary; `end` finalizes, classifies, and hands the block to a writer thread
-   that inserts into SQLite.
+4. zsh `precmd` writes the matching end marker with the exit code, before the
+   prompt is drawn.
+5. `marker::MarkerFilter` parses and strips both markers; `end` finalizes,
+   classifies, and hands the block to a writer thread that inserts into SQLite.
+
+There is no side channel: metadata and boundaries all travel in-band as private
+OSC sequences, which keeps the tool shell- and OS-agnostic. The parser returns
+marker-free chunks borrowed from the input, so the common path allocates nothing.
 
 The TUI renders to **stderr** on purpose: stdout carries the selected command so
 the zsh widget can capture it via `$(recall search --cmd-only)`. `Tab` selects
@@ -72,8 +75,9 @@ execute immediately.
 - The end marker must be emitted in-band before the prompt, otherwise the next
   prompt is captured. `PROMPT_EOL_MARK` is blanked in proxied shells because it
   is printed before `precmd`.
-- Never use `exec {fd}>&- 2>/dev/null` in zsh: `exec` redirections persist and
-  this permanently redirects the shell's stderr to `/dev/null`.
+- Marker payloads are JSON: escape every control character so the payload never
+  contains a raw BEL/ESC that would terminate the OSC early. `print -r` keeps
+  JSON escapes literal.
 - zsh does not word-split unquoted expansions; pass flags as separate arguments
   or arrays.
 - Output is stored zstd-compressed; a truncated plain-text projection lives in
