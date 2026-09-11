@@ -141,31 +141,45 @@ escape_double_quotes() {
     sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\$/\\$/g' -e 's/`/\\`/g'
 }
 
-ask_auto_proxy() {
-    case "${RECALL_AUTO_PROXY:-}" in
-        1 | true | yes) return 0 ;;
-        0 | false | no) return 1 ;;
+choose_proxy_setup() {
+    case "${RECALL_PROXY_SETUP:-}" in
+        terminal | shell | none)
+            proxy_setup=$RECALL_PROXY_SETUP
+            return
+            ;;
         "") ;;
-        *) die "RECALL_AUTO_PROXY must be 1 or 0" ;;
+        *) die "RECALL_PROXY_SETUP must be terminal, shell, or none" ;;
     esac
 
     if [ ! -r /dev/tty ] || [ ! -w /dev/tty ]; then
-        return 1
+        proxy_setup=none
+        return
     fi
 
     say ""
-    say "Enable automatic output capture in every new terminal?"
-    say "This makes recall's PTY proxy wrap each new interactive shell. Your usual"
-    say "shell stays the same inside the proxy, while recall can record command output."
-    printf 'Enable it now? [Y/n] ' > /dev/tty
+    say "Choose how new terminals start recall's PTY proxy:"
+    say "  1. Terminal emulator startup command (recommended)"
+    if [ -n "$profile_path" ]; then
+        say "  2. Shell startup file (use when your terminal has no such setting)"
+    fi
+    say "  3. Not now"
+    printf 'Choice [1]: ' > /dev/tty
     IFS= read -r answer < /dev/tty || answer=""
     case "$answer" in
-        "" | y | Y | yes | YES | Yes) return 0 ;;
-        *) return 1 ;;
+        "" | 1) proxy_setup=terminal ;;
+        2)
+            if [ -n "$profile_path" ]; then
+                proxy_setup=shell
+            else
+                proxy_setup=none
+            fi
+            ;;
+        *) proxy_setup=none ;;
     esac
 }
 
-auto_proxy=0
+proxy_setup=none
+choose_proxy_setup
 shell_configured=0
 if [ -n "$profile_path" ]; then
     mkdir -p "$(dirname "$profile_path")"
@@ -186,10 +200,6 @@ if [ -n "$profile_path" ]; then
             ;;
     esac
 
-    if ask_auto_proxy; then
-        auto_proxy=1
-    fi
-
     escaped_install_dir=$(printf '%s' "$install_dir" | escape_double_quotes)
     {
         printf '\n# >>> recall installer >>>\n'
@@ -202,7 +212,7 @@ if [ -n "$profile_path" ]; then
                 if [ "$integration_needed" -eq 1 ]; then
                     printf 'eval "$(command recall init %s)"\n' "$shell_name"
                 fi
-                if [ "$auto_proxy" -eq 1 ]; then
+                if [ "$proxy_setup" = shell ]; then
                     if [ "$shell_name" = zsh ]; then
                         printf 'if [[ -o interactive && -z ${RECALL_PROXY_ACTIVE:-} && -z ${RECALL_AUTO_LAUNCH:-} ]]; then\n'
                     else
@@ -219,7 +229,7 @@ if [ -n "$profile_path" ]; then
                 if [ "$integration_needed" -eq 1 ]; then
                     printf 'command recall init fish | source\n'
                 fi
-                if [ "$auto_proxy" -eq 1 ]; then
+                if [ "$proxy_setup" = shell ]; then
                     printf 'if status is-interactive; and not set -q RECALL_PROXY_ACTIVE; and not set -q RECALL_AUTO_LAUNCH\n'
                     printf '    set -gx RECALL_AUTO_LAUNCH 1\n'
                     printf '    exec recall shell\n'
@@ -258,14 +268,21 @@ if [ "$config_created" -eq 1 ]; then
 else
     say "Config:       kept existing $config_path"
 fi
-if [ "$auto_proxy" -eq 1 ]; then
-    say "PTY proxy:    enabled for new interactive terminals"
-else
-    say "PTY proxy:    not enabled automatically; run 'recall shell' when needed"
-fi
+case "$proxy_setup" in
+    terminal)
+        say "PTY proxy:    set your terminal's startup command to:"
+        say "              $destination shell"
+        ;;
+    shell)
+        say "PTY proxy:    enabled through $profile_path"
+        ;;
+    none)
+        say "PTY proxy:    not enabled; run 'recall shell' when needed"
+        ;;
+esac
 say ""
-say "Open a new terminal to load the setup. Run 'recall' (or press Alt+R) to"
-say "browse history, and press F1 inside recall to see all shortcuts."
+say "Open a new terminal after finishing the setup above. Run 'recall' or press"
+say "Alt+R to browse history; press F1 inside recall to see all shortcuts."
 say ""
 say "Before capturing sensitive work, review: $config_path"
 say "Uninstall: curl -fsSL https://raw.githubusercontent.com/$repo/master/uninstall.sh | sh"
