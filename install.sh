@@ -283,6 +283,12 @@ esac
 say ""
 say "Open a new terminal after finishing the setup above. Run 'recall' or press"
 say "Alt+R to browse history; press F1 inside recall to see all shortcuts."
+if [ "$os" = Darwin ]; then
+    say ""
+    say "macOS note: if Option+R types '®' instead of opening recall, enable"
+    say "\"Use Option as Meta key\" in your terminal (Terminal.app, iTerm2, Ghostty),"
+    say "or set RECALL_KEY to another key before 'recall init' in your shell config."
+fi
 say ""
 say "Before capturing sensitive work, review: $config_path"
 say "Uninstall: curl -fsSL https://raw.githubusercontent.com/$repo/master/uninstall.sh | sh"
