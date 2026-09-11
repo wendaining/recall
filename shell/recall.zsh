@@ -119,7 +119,11 @@ _recall_search() {
 
   # NB: `status` is a read-only special parameter in zsh; do not use it here.
   local recall_output recall_status
-  recall_output=$(command recall search --cmd-only)
+  if [[ $OSTYPE == darwin* ]]; then
+    recall_output=$(command recall search --cmd-only </dev/tty)
+  else
+    recall_output=$(command recall search --cmd-only)
+  fi
   recall_status=$?
 
   zle reset-prompt
@@ -138,4 +142,7 @@ _recall_search() {
 if [[ -o interactive ]]; then
   zle -N _recall_search
   bindkey "@RECALL_SEARCH_KEY@" _recall_search
+  if [[ $OSTYPE == darwin* ]]; then
+    bindkey '®' _recall_search
+  fi
 fi

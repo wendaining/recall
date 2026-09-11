@@ -34,6 +34,9 @@ zip = { version = "8.2.0", default-features = false, features = ["deflate"] }
 libc = "0.2.182"
 signal-hook = "0.4.4"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+crossterm = { version = "0.29.0", features = ["use-dev-tty"] }
+
 [target."cfg(windows)".dependencies]
 sysinfo = { version = "=0.38.0", default-features = false, features = ["system"] }
 windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_System_Console"] }

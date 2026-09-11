@@ -152,9 +152,9 @@ Windows 上组合键只会取其第一个键。
 
 #### macOS 的 Option 键
 
-Mac 键盘没有 `Alt`，对应的是 `Option`（`⌥`）。默认情况下多数 macOS 终端把
-`Option` 当作组合键，`Option+R` 会输入 `®` 而不是发送 `Meta-R`，组件无法打开。
-可以二选一：在终端里把 Option 设为 Meta：
+Mac 键盘没有 `Alt`，对应的是 `Option`（`⌥`）。recall 同时支持原生
+`Option+R` 输入的 `®` 与 `Meta-R` 序列，macOS 终端保持默认设置即可打开搜索组件。
+将 Option 设为 Meta 会保留终端惯例中的 `Alt+R` 兼容性：
 
 | 终端 | 设置项 |
 | --- | --- |
@@ -162,7 +162,7 @@ Mac 键盘没有 `Alt`，对应的是 `Option`（`⌥`）。默认情况下多�
 | iTerm2 | Preferences → Profiles → Keys → *Left Option Key: Esc+* |
 | Ghostty | `macos-option-as-alt = true` |
 
-或者换一个按键，例如 `"ctrl-x ctrl-r"`（安装脚本在 macOS 上会提供该选项）。
+也可以换一个按键，例如 `"ctrl-x ctrl-r"`（安装脚本在 macOS 上会提供该选项）。
 运行 `recall doctor` 可确认 shell 集成和 `PATH` 状态。
 
 未使用代理时，recall 仍会在后台记录命令元数据。要捕获输出，需要让 shell 运行在

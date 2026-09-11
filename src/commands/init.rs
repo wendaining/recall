@@ -16,3 +16,14 @@ pub fn run(args: InitArgs) -> Result<()> {
     print!("{}", script.replace(SEARCH_KEY_PLACEHOLDER, &key));
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn macos_zsh_integration_supports_native_option_r() {
+        let script = include_str!("../../shell/recall.zsh");
+        assert!(script.contains("$OSTYPE == darwin*"));
+        assert!(script.contains("</dev/tty"));
+        assert!(script.contains("bindkey '®' _recall_search"));
+    }
+}

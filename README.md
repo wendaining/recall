@@ -175,10 +175,10 @@ first key.
 
 #### macOS: the Option key
 
-Mac keyboards have no `Alt`; the equivalent is `Option` (`⌥`). By default most
-macOS terminals treat `Option` as a compose key, so `Option+R` types `®` instead
-of sending `Meta-R`, and the widget never opens. Either enable Option-as-Meta in
-your terminal:
+Mac keyboards have no `Alt`; the equivalent is `Option` (`⌥`). recall accepts
+both the native `Option+R` character (`®`) and the `Meta-R` sequence, so the
+search widget works with the default macOS terminal settings. Option-as-Meta
+keeps `Alt+R` compatible with terminal conventions:
 
 | Terminal | Setting |
 | --- | --- |
@@ -186,8 +186,9 @@ your terminal:
 | iTerm2 | Preferences → Profiles → Keys → *Left Option Key: Esc+* |
 | Ghostty | `macos-option-as-alt = true` |
 
-or pick another key, for example `"ctrl-x ctrl-r"` (the installer offers this on
-macOS). Run `recall doctor` to confirm the shell integration and `PATH`.
+You can also pick another key, for example `"ctrl-x ctrl-r"` (the installer
+offers this on macOS). Run `recall doctor` to confirm the shell integration and
+`PATH`.
 
 ### 2. Enable output capture with the PTY proxy
 
