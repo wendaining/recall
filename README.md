@@ -191,25 +191,8 @@ Imported blocks have metadata but no output. Re-running is safe: existing
 
 ## Usage
 
-Open the TUI with `recall` (or the Alt+R widget):
-
-| Key | Action |
-| --- | --- |
-| type | search commands and output |
-| `↑` / `↓` | move selection (search) / scroll output (detail) |
-| `Alt+←` / `Alt+→` | resize the list and detail panes (persisted across sessions) |
-| `[` / `]` | resize the panes while in detail focus |
-| `Enter` | switch focus between search and detail |
-| `Tab` | edit selected command (insert into the prompt) |
-| `Ctrl+Enter` | execute selected command |
-| `Ctrl+E` | execute (fallback for terminals that don't report Ctrl+Enter distinctly) |
-| `Ctrl+T` | toggle the current block's selection |
-| `Ctrl+Y` | copy command |
-| `Ctrl+O` | copy selected commands and outputs chronologically; copy current output if none are selected |
-| `PgUp` / `PgDn`, `Home` / `End` | scroll output |
-| `Esc` | clear search / leave detail |
-| `Ctrl+C` | quit |
-| `F1` | toggle help |
+Open the TUI with `recall` (or the Alt+R widget). Type to search; press `F1`
+inside the TUI for the full list of key bindings.
 
 > [!note]
 >
