@@ -68,6 +68,8 @@ struct Shared {
     exclude_output: regex::RegexSet,
     tx: Sender<Block>,
     pending: AtomicUsize,
+    markers_seen: AtomicUsize,
+    input_bytes: AtomicUsize,
 }
 
 /// Run the PTY proxy until the child shell exits. Returns the child exit code.
@@ -94,6 +96,8 @@ pub fn run(config: Arc<Config>, shell: String, login: bool) -> Result<i32> {
         exclude_output: build_exclude(&config.proxy.exclude_output),
         tx,
         pending: AtomicUsize::new(0),
+        markers_seen: AtomicUsize::new(0),
+        input_bytes: AtomicUsize::new(0),
     });
 
     spawn_writer(rx, config.general.db_path.clone(), shared.clone());
@@ -128,7 +132,7 @@ pub fn run(config: Arc<Config>, shell: String, login: bool) -> Result<i32> {
 
     let _raw_guard = RawModeGuard::new();
 
-    spawn_stdin_pump(writer);
+    spawn_stdin_pump(writer, shared.clone());
     spawn_resize_handler(master);
 
     let debug = std::env::var_os("RECALL_DEBUG").is_some();
@@ -183,11 +187,30 @@ pub fn run(config: Arc<Config>, shell: String, login: bool) -> Result<i32> {
     let code = child.wait().map(|status| status.exit_code()).unwrap_or(1) as i32;
 
     drain_pending(&shared, Duration::from_millis(500));
+
+    drop(_raw_guard);
+
+    if should_warn(
+        shared.markers_seen.load(Ordering::SeqCst),
+        shared.input_bytes.load(Ordering::SeqCst),
+    ) {
+        util::eprintln_flush("recall: no command markers were captured in this session.");
+        util::eprintln_flush(&format!(
+            "recall: add `eval \"$(recall init {})\"` to your shell startup file.",
+            shared.shell
+        ));
+    }
+
     Ok(code)
+}
+
+fn should_warn(markers_seen: usize, input_bytes: usize) -> bool {
+    markers_seen == 0 && input_bytes > 0
 }
 
 /// Apply a start/end marker to the capture state.
 fn apply_event(shared: &Arc<Shared>, event: Request) {
+    shared.markers_seen.fetch_add(1, Ordering::SeqCst);
     match event {
         Request::Start {
             id,
@@ -348,7 +371,7 @@ fn spawn_writer(rx: Receiver<Block>, db_path: PathBuf, shared: Arc<Shared>) {
     });
 }
 
-fn spawn_stdin_pump(mut writer: Box<dyn Write + Send>) {
+fn spawn_stdin_pump(mut writer: Box<dyn Write + Send>, shared: Arc<Shared>) {
     thread::spawn(move || {
         let mut stdin = std::io::stdin();
         let mut buf = [0u8; 8192];
@@ -356,6 +379,7 @@ fn spawn_stdin_pump(mut writer: Box<dyn Write + Send>) {
             match stdin.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
+                    shared.input_bytes.fetch_add(n, Ordering::SeqCst);
                     if writer.write_all(&buf[..n]).is_err() {
                         break;
                     }
@@ -507,6 +531,8 @@ mod tests {
             exclude_output: build_exclude(&config.proxy.exclude_output),
             tx,
             pending: AtomicUsize::new(0),
+            markers_seen: AtomicUsize::new(0),
+            input_bytes: AtomicUsize::new(0),
         });
 
         apply_event(
@@ -574,6 +600,13 @@ mod tests {
         let parts: Vec<PathBuf> = std::env::split_paths(&merged).collect();
 
         assert_eq!(parts, [PathBuf::from("/opt/recall/bin")]);
+    }
+
+    #[test]
+    fn warns_only_when_input_arrives_without_markers() {
+        assert!(should_warn(0, 8));
+        assert!(!should_warn(1, 8));
+        assert!(!should_warn(0, 0));
     }
 
     #[test]
