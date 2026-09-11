@@ -41,18 +41,24 @@ fn conpty_forwards_special_keys_and_exits_cleanly() {
     drop(pair.slave);
     let mut reader = pair.master.try_clone_reader().unwrap();
     let writer = Arc::new(Mutex::new(pair.master.take_writer().unwrap()));
-    drop(pair.master);
+    let master = pair.master;
 
     let output = Arc::new(Mutex::new(Vec::new()));
     let reader_output = output.clone();
     let terminal_writer = writer.clone();
-    thread::spawn(move || {
+    let reader_thread = thread::spawn(move || {
         let mut chunk = [0u8; 4096];
         let mut cursor_queries_answered = 0;
-        while let Ok(count) = reader.read(&mut chunk) {
-            if count == 0 {
-                break;
-            }
+        loop {
+            let count = match reader.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(count) => count,
+                Err(err) => {
+                    let mut output = reader_output.lock().unwrap();
+                    output.extend_from_slice(format!("\nreader error: {err}").as_bytes());
+                    break;
+                }
+            };
             let cursor_queries = {
                 let mut output = reader_output.lock().unwrap();
                 output.extend_from_slice(&chunk[..count]);
@@ -104,6 +110,8 @@ fn conpty_forwards_special_keys_and_exits_cleanly() {
 
     assert_eq!(status.exit_code(), 0, "{}", output_text(&output));
     drop(writer);
+    drop(master);
+    reader_thread.join().unwrap();
     let _ = std::fs::remove_dir_all(test_dir);
 }
 
