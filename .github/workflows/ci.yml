@@ -32,6 +32,7 @@ jobs:
             shell:
               - 'shell/**'
               - 'install.sh'
+              - 'uninstall.sh'
               - '.github/workflows/ci.yml'
 
   test:
@@ -65,6 +66,7 @@ jobs:
       # files can be checked directly without building.
       - run: |
           sh -n install.sh
+          sh -n uninstall.sh
           zsh -n shell/recall.zsh
           bash -n shell/recall.bash
           fish -n shell/recall.fish
