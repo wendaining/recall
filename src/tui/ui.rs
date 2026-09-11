@@ -72,19 +72,25 @@ fn draw_list(frame: &mut Frame, app: &mut App, area: Rect) {
         .results
         .iter()
         .map(|entry| {
-            ListItem::new(block_lines(
-                entry,
-                &app.config,
-                app.selected_ids.contains(&entry.id),
-            ))
+            let selected = app.selected_ids.contains(&entry.id);
+            ListItem::new(block_lines(entry, &app.config, selected))
+                .style(block_selection_style(selected))
         })
         .collect();
 
+    let current_selected = app
+        .results
+        .get(app.selected)
+        .is_some_and(|entry| app.selected_ids.contains(&entry.id));
     let list = List::new(items)
         .block(block)
         .highlight_style(
             Style::default()
-                .bg(Color::Indexed(238))
+                .bg(if current_selected {
+                    Color::Indexed(22)
+                } else {
+                    Color::Indexed(238)
+                })
                 .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol("");
@@ -305,6 +311,16 @@ fn border_style(focused: bool) -> Style {
         Style::default().fg(Color::Cyan)
     } else {
         Style::default().fg(Color::DarkGray)
+    }
+}
+
+fn block_selection_style(selected: bool) -> Style {
+    if selected {
+        Style::default()
+            .bg(Color::Indexed(22))
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
     }
 }
 
