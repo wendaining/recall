@@ -111,7 +111,8 @@ pub fn run(config: Arc<Config>, shell: String, login: bool) -> Result<i32> {
     }))?;
 
     let mut cmd = CommandBuilder::new(&shell);
-    if login {
+    // `-l` is a Unix login-shell convention; PowerShell/cmd reject it.
+    if login && cfg!(unix) {
         cmd.arg("-l");
     }
     cmd.env("RECALL_PROXY_ACTIVE", "1");
