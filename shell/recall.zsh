@@ -111,8 +111,8 @@ add-zsh-hook preexec _recall_preexec
 add-zsh-hook precmd _recall_precmd
 
 # --- TUI widget -------------------------------------------------------------
-# The TUI renders to stderr, so stdout can be captured here. Bind to Alt+R by
-# default (Ctrl+R is usually atuin); override with RECALL_KEY.
+# The TUI renders to stderr, so stdout can be captured here. The key is set by
+# `ui.search_key` in the config and injected by `recall init`.
 _recall_search() {
   emulate -L zsh
   zle -I
@@ -137,5 +137,5 @@ _recall_search() {
 
 if [[ -o interactive ]]; then
   zle -N _recall_search
-  bindkey "${RECALL_KEY:-^[r}" _recall_search
+  bindkey "@RECALL_SEARCH_KEY@" _recall_search
 fi

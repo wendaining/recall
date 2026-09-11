@@ -128,7 +128,8 @@ trap '__recall_debug_trap' DEBUG
 PROMPT_COMMAND="__recall_prompt_begin${PROMPT_COMMAND:+; $PROMPT_COMMAND}; __recall_precmd"
 
 # --- TUI widget -------------------------------------------------------------
-# The TUI renders to stderr, so stdout can be captured here. Bind to Alt+R.
+# The TUI renders to stderr, so stdout can be captured here. The key is set by
+# `ui.search_key` in the config and injected by `recall init`.
 # bash cannot accept a line from a bind -x function, so both Tab and Ctrl+Enter
 # insert the command; press Enter to run it.
 __recall_search() {
@@ -140,4 +141,4 @@ __recall_search() {
   fi
 }
 
-bind -x '"\er": __recall_search'
+bind -x '"@RECALL_SEARCH_KEY@": __recall_search'

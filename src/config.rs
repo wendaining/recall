@@ -36,6 +36,8 @@ pub struct General {
 pub struct Proxy {
     /// Shell to spawn under the proxy. Empty means the login shell.
     pub shell: String,
+    /// Spawn the shell as a login shell (`-l`). Defaults to true on macOS.
+    pub login_shell: bool,
     /// Commands matching any of these regexes are not recorded.
     pub exclude: Vec<String>,
     /// Commands matching any of these regexes are recorded without output.
@@ -67,6 +69,9 @@ pub struct ClipboardConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Ui {
+    /// Key that opens the recall search TUI. Semantic form, e.g. "alt-r",
+    /// "ctrl-t", or a two-stroke sequence like "ctrl-x ctrl-r".
+    pub search_key: String,
     /// Number of output lines shown per block in the list pane.
     pub preview_lines: usize,
     /// strftime format used for absolute timestamps.
@@ -89,6 +94,7 @@ impl Default for Proxy {
     fn default() -> Self {
         Self {
             shell: String::new(),
+            login_shell: cfg!(target_os = "macos"),
             exclude: vec![r"^\s*recall\b".to_string(), r"^\s*atuin\b".to_string()],
             exclude_output: Vec::new(),
             mark_interactive: true,
@@ -118,6 +124,7 @@ impl Default for ClipboardConfig {
 impl Default for Ui {
     fn default() -> Self {
         Self {
+            search_key: "alt-r".to_string(),
             preview_lines: 4,
             date_format: "%Y-%m-%d %H:%M:%S".to_string(),
         }
@@ -183,5 +190,24 @@ mod tests {
             config.proxy.exclude_output,
             ["^docker logs".to_string(), "^tail -f".to_string()]
         );
+    }
+
+    #[test]
+    fn login_shell_default_matches_platform() {
+        assert_eq!(Proxy::default().login_shell, cfg!(target_os = "macos"));
+    }
+
+    #[test]
+    fn parses_search_key() {
+        let config: Config = toml::from_str(
+            r#"
+            [ui]
+            search_key = "ctrl-x ctrl-r"
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(config.ui.search_key, "ctrl-x ctrl-r");
+        assert_eq!(Config::default().ui.search_key, "alt-r");
     }
 }

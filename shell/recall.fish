@@ -103,7 +103,8 @@ function __recall_postexec --on-event fish_postexec
 end
 
 # --- TUI widget -------------------------------------------------------------
-# The TUI renders to stderr, so stdout can be captured here. Bind to Alt+R.
+# The TUI renders to stderr, so stdout can be captured here. The key is set by
+# `ui.search_key` in the config and injected by `recall init`.
 function __recall_search
     set -l output (command recall search --cmd-only 2>/dev/tty | string collect)
     set -l rc $status
@@ -117,4 +118,4 @@ function __recall_search
     end
 end
 
-bind \er __recall_search
+bind @RECALL_SEARCH_KEY@ __recall_search

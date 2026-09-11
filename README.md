@@ -109,11 +109,41 @@ recall init fish | source
 ```
 
 This installs the capture hooks and an **Alt+R** widget that opens the TUI and
-inserts the selected command into your prompt. Override the key with
-`RECALL_KEY` (zsh), or rebind in bash/fish.
+inserts the selected command into your prompt. The key is set by
+`[ui].search_key` in the config; see below for details.
 
 Without the proxy, recall still records command metadata in the background. To
 capture output, run your shell under the proxy.
+
+#### Choosing the search key
+
+The key is configured in `~/.config/recall/config.toml` as a semantic name that
+`recall init` translates for each shell:
+
+```toml
+[ui]
+search_key = "alt-r"   # alt-r, ctrl-t, or a two-stroke sequence "ctrl-x ctrl-r"
+```
+
+Supported forms are `alt-<letter>`, `ctrl-<letter>`, or a space-separated
+sequence such as `"ctrl-x ctrl-r"`. The default is `alt-r`. After editing the
+file, reopen the shell (or re-run `eval "$(recall init zsh)"`) to apply it.
+
+#### macOS: the Option key
+
+Mac keyboards have no `Alt`; the equivalent is `Option` (`⌥`). By default most
+macOS terminals treat `Option` as a compose key, so `Option+R` types `®` instead
+of sending `Meta-R`, and the widget never opens. Either enable Option-as-Meta in
+your terminal:
+
+| Terminal | Setting |
+| --- | --- |
+| Terminal.app | Settings → Profiles → Keyboard → *Use Option as Meta key* |
+| iTerm2 | Preferences → Profiles → Keys → *Left Option Key: Esc+* |
+| Ghostty | `macos-option-as-alt = true` |
+
+or pick another key, for example `"ctrl-x ctrl-r"` (the installer offers this on
+macOS). Run `recall doctor` to confirm the shell integration and `PATH`.
 
 ### 2. Enable output capture with the PTY proxy
 
@@ -142,6 +172,13 @@ shell /home/you/.local/bin/recall shell
 `recall shell` falls back to a plain shell if the terminal is not a TTY, if
 `RECALL_PROXY=0` is set, or if the proxy fails to start.
 
+On macOS the proxy starts the shell as a login shell (`zsh -l`) so `~/.zprofile`
+and tools such as Homebrew are initialized. Use `--no-login` or set
+`proxy.login_shell = false` to opt out. The proxy also prepends its own
+directory to the child `PATH`, so the `recall init` hooks keep working even when
+a terminal launches `recall shell` before your profile is loaded. If a session
+produces output but no command markers, the proxy prints a hint when it exits.
+
 ### 3. Import existing atuin history (optional)
 
 ```sh
@@ -165,14 +202,15 @@ Open the TUI with `recall` (or the Alt+R widget):
 | `Ctrl+Enter` | execute selected command |
 | `Ctrl+E` | execute (fallback for terminals that don't report Ctrl+Enter distinctly) |
 | `Ctrl+T` | toggle the current block's selection |
-| `Ctrl+Y` / `y` | copy command |
+| `Ctrl+Y` | copy command |
 | `Ctrl+O` | copy selected commands and outputs chronologically; copy current output if none are selected |
-| `Y` | copy current output |
 | `PgUp` / `PgDn`, `Home` / `End` | scroll output |
 | `Esc` | clear search / leave detail |
 | `Ctrl+C` | quit |
 | `F1` | toggle help |
 
+> [!note]
+>
 > `Tab` and `Ctrl+Enter` need the shell widget (`recall search --cmd-only`).
 > `Ctrl+Enter` requires a terminal emulator that reports it distinctly; use
 > `Ctrl+E` otherwise.
@@ -207,6 +245,7 @@ max_output_bytes = 1048576   # per-command output cap (before compression)
 strip_ansi = true
 
 [proxy]
+login_shell = true           # spawn the shell with -l (default: true on macOS)
 exclude_output = ["^docker logs", "^ffmpeg", "^tail -f"] # keep metadata, skip output
 mark_interactive = true      # skip output of full-screen programs
 secrets_filter = true
@@ -217,6 +256,9 @@ auto_prune = true
 
 [clipboard]
 backend = "auto"             # auto | arboard | osc52 | wl-copy | xclip | xsel
+
+[ui]
+search_key = "alt-r"         # key that opens recall (alt-r, ctrl-t, "ctrl-x ctrl-r")
 ```
 
 ## How it works

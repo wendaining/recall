@@ -97,7 +97,36 @@ recall init fish | source
 ```
 
 这会安装捕获钩子，以及一个 **Alt+R** 组件：打开 TUI 并把选中的命令插入到提示符。
-zsh 下可用 `RECALL_KEY` 覆盖按键，bash/fish 下可自行重新绑定。
+按键由配置里的 `[ui].search_key` 决定，详见下文。
+
+#### 设置快捷键
+
+按键在 `~/.config/recall/config.toml` 中以语义化名称配置，由 `recall init`
+按不同 shell 转换：
+
+```toml
+[ui]
+search_key = "alt-r"   # 可选 alt-r、ctrl-t，或组合键 "ctrl-x ctrl-r"
+```
+
+支持的写法有 `alt-<字母>`、`ctrl-<字母>`，或用空格分隔的组合键（如
+`"ctrl-x ctrl-r"`）。默认是 `alt-r`。修改后重开 shell（或重新执行
+`eval "$(recall init zsh)"`）即可生效。
+
+#### macOS 的 Option 键
+
+Mac 键盘没有 `Alt`，对应的是 `Option`（`⌥`）。默认情况下多数 macOS 终端把
+`Option` 当作组合键，`Option+R` 会输入 `®` 而不是发送 `Meta-R`，组件无法打开。
+可以二选一：在终端里把 Option 设为 Meta：
+
+| 终端 | 设置项 |
+| --- | --- |
+| Terminal.app | 设置 → 描述文件 → 键盘 → *将 Option 键用作 Meta 键* |
+| iTerm2 | Preferences → Profiles → Keys → *Left Option Key: Esc+* |
+| Ghostty | `macos-option-as-alt = true` |
+
+或者换一个按键，例如 `"ctrl-x ctrl-r"`（安装脚本在 macOS 上会提供该选项）。
+运行 `recall doctor` 可确认 shell 集成和 `PATH` 状态。
 
 未使用代理时，recall 仍会在后台记录命令元数据。要捕获输出，需要让 shell 运行在
 代理之下。
@@ -125,6 +154,12 @@ shell /home/you/.local/bin/recall shell
 如果终端不是 TTY、设置了 `RECALL_PROXY=0`，或代理启动失败，`recall shell`
 会回退到普通 shell。
 
+macOS 上代理会以登录 shell 启动（`zsh -l`），从而加载 `~/.zprofile` 和
+Homebrew 等初始化。可用 `--no-login` 或 `proxy.login_shell = false` 关闭。代理
+还会把自身所在目录加到子进程 `PATH` 最前面，所以即使终端在 profile 加载前就
+启动了 `recall shell`，`recall init` 钩子也能正常工作。如果会话产生了输出却没有
+任何命令标记，代理会在退出时给出提示。
+
 ### 3. 导入已有 atuin 历史（可选）
 
 ```sh
@@ -146,13 +181,16 @@ recall import atuin --days 30  # 仅最近 30 天
 | `Tab` | 编辑选中命令（插入到提示符） |
 | `Ctrl+Enter` | 执行选中命令 |
 | `Ctrl+E` | 执行（终端无法区分 Ctrl+Enter 时的回退键） |
-| `Ctrl+Y` / `y` | 复制命令 |
-| `Ctrl+O` / `Y` | 复制输出 |
+| `Ctrl+T` | 切换当前 block 的选中状态 |
+| `Ctrl+Y` | 复制命令 |
+| `Ctrl+O` | 复制输出 |
 | `PgUp` / `PgDn`、`Home` / `End` | 滚动输出 |
 | `Esc` | 清空搜索 / 退出详情面板 |
 | `q` / `Ctrl+C` | 退出 |
 | `F1` | 切换帮助 |
 
+> [!note]
+>
 > `Tab` 和 `Ctrl+Enter` 依赖 shell 组件（`recall search --cmd-only`）。
 > `Ctrl+Enter` 需要终端模拟器能区分上报；否则请用 `Ctrl+E`。
 
@@ -185,6 +223,7 @@ max_output_bytes = 1048576   # 单条命令输出上限（压缩前）
 strip_ansi = true
 
 [proxy]
+login_shell = true           # 以 -l 启动 shell（macOS 默认开启）
 mark_interactive = true      # 跳过全屏程序的输出
 secrets_filter = true
 
@@ -194,6 +233,9 @@ auto_prune = true
 
 [clipboard]
 backend = "auto"             # auto | arboard | osc52 | wl-copy | xclip | xsel
+
+[ui]
+search_key = "alt-r"         # 打开 recall 的按键（alt-r、ctrl-t、"ctrl-x ctrl-r"）
 ```
 
 ## 工作原理

@@ -11,6 +11,7 @@ use crate::util;
 pub fn run(args: ShellArgs) -> Result<()> {
     let config = Config::load()?;
     let shell = resolve_shell(&args, &config);
+    let login = resolve_login(&args, &config);
 
     let proxy_disabled = args.no_proxy
         || std::env::var("RECALL_PROXY").is_ok_and(|v| v == "0")
@@ -21,7 +22,7 @@ pub fn run(args: ShellArgs) -> Result<()> {
         return run_plain(&shell);
     }
 
-    match proxy::run(Arc::new(config), shell.clone()) {
+    match proxy::run(Arc::new(config), shell.clone(), login) {
         Ok(code) => std::process::exit(code),
         Err(err) => {
             util::eprintln_flush(&format!(
@@ -50,4 +51,54 @@ fn resolve_shell(args: &ShellArgs, config: &Config) -> String {
         .clone()
         .or_else(|| (!config.proxy.shell.is_empty()).then(|| config.proxy.shell.clone()))
         .unwrap_or_else(util::login_shell)
+}
+
+fn resolve_login(args: &ShellArgs, config: &Config) -> bool {
+    if args.no_login {
+        false
+    } else if args.login {
+        true
+    } else {
+        config.proxy.login_shell
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(login: bool, no_login: bool) -> ShellArgs {
+        ShellArgs {
+            no_proxy: false,
+            login,
+            no_login,
+            shell: None,
+        }
+    }
+
+    #[test]
+    fn login_flag_overrides_config() {
+        let mut config = Config::default();
+        config.proxy.login_shell = false;
+
+        assert!(resolve_login(&args(true, false), &config));
+    }
+
+    #[test]
+    fn no_login_flag_overrides_config() {
+        let mut config = Config::default();
+        config.proxy.login_shell = true;
+
+        assert!(!resolve_login(&args(false, true), &config));
+    }
+
+    #[test]
+    fn falls_back_to_config_when_no_flag() {
+        let mut config = Config::default();
+        config.proxy.login_shell = true;
+        assert!(resolve_login(&args(false, false), &config));
+
+        config.proxy.login_shell = false;
+        assert!(!resolve_login(&args(false, false), &config));
+    }
 }
