@@ -492,13 +492,28 @@ fn drain_pending(shared: &Arc<Shared>, timeout: Duration) {
 
 struct RawModeGuard {
     active: bool,
+    #[cfg(windows)]
+    original_input_mode: Option<u32>,
 }
 
 impl RawModeGuard {
     fn new() -> Self {
         let is_tty = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
+        // Crossterm's raw mode only clears line/echo/processed input on Windows.
+        // Pass-through needs ENABLE_VIRTUAL_TERMINAL_INPUT so arrow/function/Alt
+        // keys reach ConPTY as VT sequences instead of legacy scan codes.
+        #[cfg(windows)]
+        let original_input_mode = if is_tty {
+            enable_virtual_terminal_input()
+        } else {
+            None
+        };
         let active = is_tty && crossterm::terminal::enable_raw_mode().is_ok();
-        Self { active }
+        Self {
+            active,
+            #[cfg(windows)]
+            original_input_mode,
+        }
     }
 }
 
@@ -507,6 +522,45 @@ impl Drop for RawModeGuard {
         if self.active {
             let _ = crossterm::terminal::disable_raw_mode();
         }
+        #[cfg(windows)]
+        if let Some(mode) = self.original_input_mode {
+            restore_console_mode(mode);
+        }
+    }
+}
+
+/// Enable VT input mode, returning the previous mode for restoration.
+#[cfg(windows)]
+fn enable_virtual_terminal_input() -> Option<u32> {
+    use windows_sys::Win32::System::Console::{
+        ENABLE_VIRTUAL_TERMINAL_INPUT, GetConsoleMode, GetStdHandle, STD_INPUT_HANDLE,
+        SetConsoleMode,
+    };
+
+    // SAFETY: reads and writes the console mode of the process's own standard
+    // input handle, storing the value in a local.
+    unsafe {
+        let handle = GetStdHandle(STD_INPUT_HANDLE);
+        let mut mode = 0u32;
+        if GetConsoleMode(handle, &mut mode) == 0 {
+            return None;
+        }
+        let original = mode;
+        if SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_INPUT) == 0 {
+            return None;
+        }
+        Some(original)
+    }
+}
+
+#[cfg(windows)]
+fn restore_console_mode(mode: u32) {
+    use windows_sys::Win32::System::Console::{GetStdHandle, STD_INPUT_HANDLE, SetConsoleMode};
+
+    // SAFETY: restores the previously captured mode on the standard input handle.
+    unsafe {
+        let handle = GetStdHandle(STD_INPUT_HANDLE);
+        SetConsoleMode(handle, mode);
     }
 }
 

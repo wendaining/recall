@@ -1721,6 +1721,7 @@ dependencies = [
  "toml",
  "ulid",
  "unicode-width",
+ "windows-sys 0.60.2",
  "zstd",
 ]
 

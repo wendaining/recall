@@ -31,3 +31,4 @@ signal-hook = "0.4.4"
 
 [target."cfg(windows)".dependencies]
 sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
+windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_System_Console"] }
