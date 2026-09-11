@@ -26,10 +26,11 @@ curl -fsSL https://raw.githubusercontent.com/wendaining/recall/master/install.sh
 - 将 recall 安装到 `/usr/local/bin` 或 `~/.local/bin`；
 - 自动把 shell 集成写入 zsh、bash 或 fish 的启动文件；
 - 在正确位置创建默认 `config.toml`，已有配置不会被覆盖；
-- 询问是否让每个新交互式终端自动进入 recall 的 PTY 代理，从而自动捕获命令输出。
+- 询问新终端该如何启动 recall 的 PTY 代理以自动捕获输出。推荐配置终端模拟器；
+  如果终端不支持，再使用 shell 启动文件方式。
 
-该询问默认选择“是”。非交互安装时，可在 `sh` 命令上设置
-`RECALL_AUTO_PROXY=1` 或 `RECALL_AUTO_PROXY=0`。
+非交互安装时，可在 `sh` 命令上将 `RECALL_PROXY_SETUP` 设置为 `terminal`、
+`shell` 或 `none`。
 
 ### 从源码构建
 
@@ -103,11 +104,11 @@ zsh 下可用 `RECALL_KEY` 覆盖按键，bash/fish 下可自行重新绑定。
 
 ### 2. 使用 PTY 代理捕获输出
 
-一行安装脚本会询问是否自动启用。选择启用后，每个新交互式终端都会在 recall 的
-PTY 代理中启动你原本使用的 shell。它不会替换你的 shell，只是让 recall 能观察并
-保存每条命令对应的终端输出。
+一行安装脚本会提供两种设置方式。推荐把 recall 配置为终端模拟器的启动命令；如果
+终端没有这项设置，再让安装脚本写入 shell 启动文件。两种方式都会在 recall 的 PTY
+代理中启动你原本使用的 shell，以便保存每条命令对应的终端输出。
 
-如果安装时选择不启用，或使用源码安装，可以手动启动被包裹的 shell：
+如果安装时选择暂不设置，或使用源码安装，可以手动启动被包裹的 shell：
 
 ```sh
 recall shell

@@ -29,11 +29,12 @@ checksum. It then:
 - installs recall into `/usr/local/bin` or `~/.local/bin`;
 - adds the shell integration to zsh, bash, or fish automatically;
 - creates the default `config.toml` without overwriting an existing one; and
-- asks whether every new interactive terminal should start inside recall's PTY
-  proxy, which enables automatic command-output capture.
+- asks how new terminals should start recall's PTY proxy for automatic output
+  capture. Terminal emulator configuration is recommended; shell startup is
+  available as a fallback.
 
-The prompt defaults to yes. For a non-interactive installation, set
-`RECALL_AUTO_PROXY=1` or `RECALL_AUTO_PROXY=0` on the `sh` command.
+For a non-interactive installation, set `RECALL_PROXY_SETUP` to `terminal`,
+`shell`, or `none` on the `sh` command.
 
 ### Build from source
 
@@ -116,12 +117,13 @@ capture output, run your shell under the proxy.
 
 ### 2. Enable output capture with the PTY proxy
 
-The one-line installer asks whether to enable this automatically. If accepted,
-every new interactive terminal starts your usual shell inside recall's PTY
-proxy. This does not replace your shell; it lets recall observe and save the
-terminal output associated with each command.
+The one-line installer offers two setup methods. Configuring your terminal
+emulator's startup command is recommended. If your terminal does not provide
+that setting, the installer can configure your shell startup file instead.
+Either method starts your usual shell inside recall's PTY proxy so recall can
+save the output associated with each command.
 
-If you declined the prompt or installed from source, start a wrapped shell
+If you skipped the setup or installed from source, start a wrapped shell
 manually:
 
 ```sh
