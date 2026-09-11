@@ -51,6 +51,38 @@ fn row_to_block(row: &Row<'_>, full_output: bool) -> rusqlite::Result<Block> {
 
 /// Insert a block, compressing its output and populating the search projection.
 pub fn insert(conn: &Connection, block: &Block) -> Result<()> {
+    insert_block(conn, block)
+}
+
+/// Insert a block from an external history source unless it was imported before.
+pub fn insert_imported(
+    conn: &Connection,
+    block: &Block,
+    source: &str,
+    external_id: &str,
+) -> Result<bool> {
+    let tx = conn.unchecked_transaction()?;
+    let exists = tx.query_row(
+        "SELECT EXISTS(
+            SELECT 1 FROM block_imports WHERE source = ?1 AND external_id = ?2
+        )",
+        params![source, external_id],
+        |row| row.get::<_, bool>(0),
+    )?;
+    if exists {
+        return Ok(false);
+    }
+
+    insert_block(&tx, block)?;
+    tx.execute(
+        "INSERT INTO block_imports (source, external_id, block_id) VALUES (?1, ?2, ?3)",
+        params![source, external_id, block.id],
+    )?;
+    tx.commit()?;
+    Ok(true)
+}
+
+fn insert_block(conn: &Connection, block: &Block) -> Result<()> {
     let (blob, codec, text) = match &block.output {
         Some(raw) if !raw.is_empty() => {
             let compressed = compress(raw)?;
@@ -309,6 +341,18 @@ mod tests {
                 .as_deref(),
             Some("60")
         );
+    }
+
+    #[test]
+    fn imported_blocks_are_idempotent_per_source() {
+        let db = Db::open_in_memory().unwrap();
+        let first = sample("a", "echo first", None, 1);
+        let duplicate = sample("b", "echo duplicate", None, 2);
+
+        assert!(insert_imported(&db.conn, &first, "history:zsh", "entry-1").unwrap());
+        assert!(!insert_imported(&db.conn, &duplicate, "history:zsh", "entry-1").unwrap());
+        assert!(insert_imported(&db.conn, &duplicate, "history:bash", "entry-1").unwrap());
+        assert_eq!(count(&db.conn).unwrap(), 2);
     }
 
     #[test]

@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
@@ -26,7 +25,6 @@ fn import_atuin(path: Option<PathBuf>, days: u32) -> Result<()> {
     }
 
     let db = Db::open(&config.general.db_path)?;
-    let existing = existing_atuin_ids(&db)?;
 
     let atuin = Connection::open_with_flags(&atuin_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .with_context(|| format!("opening atuin database {}", atuin_path.display()))?;
@@ -62,14 +60,9 @@ fn import_atuin(path: Option<PathBuf>, days: u32) -> Result<()> {
     let mut skipped = 0usize;
     for row in rows {
         let row = row?;
-        if existing.contains(&row.id) {
-            skipped += 1;
-            continue;
-        }
-
         let block = Block {
             id: crate::commands::new_id(),
-            atuin_id: Some(row.id),
+            atuin_id: Some(row.id.clone()),
             session: row.session,
             hostname: row.hostname.or_else(|| util::resolved_hostname(&config)),
             shell: row.shell,
@@ -85,8 +78,11 @@ fn import_atuin(path: Option<PathBuf>, days: u32) -> Result<()> {
             kind: BlockKind::Unavailable,
             created_at: util::now_ns(),
         };
-        queries::insert(&db.conn, &block)?;
-        imported += 1;
+        if queries::insert_imported(&db.conn, &block, "atuin", &row.id)? {
+            imported += 1;
+        } else {
+            skipped += 1;
+        }
     }
 
     println!("imported {imported} block(s) from atuin ({skipped} already present)");
@@ -119,18 +115,6 @@ struct AtuinRow {
     session: Option<String>,
     hostname: Option<String>,
     shell: Option<String>,
-}
-
-fn existing_atuin_ids(db: &Db) -> Result<HashSet<String>> {
-    let mut stmt = db
-        .conn
-        .prepare("SELECT atuin_id FROM blocks WHERE atuin_id IS NOT NULL")?;
-    let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
-    let mut ids = HashSet::new();
-    for id in rows {
-        ids.insert(id?);
-    }
-    Ok(ids)
 }
 
 #[cfg(test)]
