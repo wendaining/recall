@@ -71,7 +71,13 @@ fn prune() -> Result<()> {
 
 fn search(args: SearchArgs) -> Result<()> {
     let config = Config::load()?;
-    let code = crate::tui::run(args, config, update::due_notice())?;
+    let update_check = update::startup_check();
+    let code = crate::tui::run(
+        args,
+        config,
+        update_check.initial_notice,
+        update_check.refreshed_notice,
+    )?;
     if code != 0 {
         std::process::exit(code);
     }

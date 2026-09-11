@@ -1,6 +1,8 @@
 use std::fs::{self, File};
 use std::io::{self, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{self, Receiver};
+use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
@@ -29,7 +31,13 @@ struct Asset {
 #[derive(Debug, Serialize, Deserialize)]
 struct UpdateCache {
     checked_at: u64,
-    latest: String,
+    #[serde(default)]
+    latest: Option<String>,
+}
+
+pub struct StartupCheck {
+    pub initial_notice: Option<String>,
+    pub refreshed_notice: Receiver<Option<String>>,
 }
 
 pub fn run(args: UpdateArgs) -> Result<()> {
@@ -78,20 +86,36 @@ pub fn run(args: UpdateArgs) -> Result<()> {
     result
 }
 
-pub fn due_notice() -> Option<String> {
-    let cache_path = cache_path()?;
-    if let Some(cache) = read_cache(&cache_path)
-        && now_secs().saturating_sub(cache.checked_at) < CHECK_INTERVAL.as_secs()
-    {
-        return newer_notice(&cache.latest);
-    }
-    let release = latest_release().ok()?;
-    let cache = UpdateCache {
-        checked_at: now_secs(),
-        latest: release.tag_name,
+pub fn startup_check() -> StartupCheck {
+    let (sender, receiver) = mpsc::channel();
+    let Some(path) = cache_path() else {
+        return StartupCheck {
+            initial_notice: None,
+            refreshed_notice: receiver,
+        };
     };
-    let _ = write_cache(&cache_path, &cache);
-    newer_notice(&cache.latest)
+    let cached = read_cache(&path);
+    let cached_latest = cached.as_ref().and_then(|cache| cache.latest.clone());
+    let initial_notice = cached_latest.as_deref().and_then(newer_notice);
+    if !cache_due(cached.as_ref(), now_secs()) {
+        return StartupCheck {
+            initial_notice,
+            refreshed_notice: receiver,
+        };
+    }
+    thread::spawn(move || {
+        let latest = latest_release().ok().map(|release| release.tag_name);
+        let cache = UpdateCache {
+            checked_at: now_secs(),
+            latest: cache_latest(latest, cached_latest),
+        };
+        let _ = write_cache(&path, &cache);
+        let _ = sender.send(cache.latest.as_deref().and_then(newer_notice));
+    });
+    StartupCheck {
+        initial_notice,
+        refreshed_notice: receiver,
+    }
 }
 
 fn install_release(stage: &Path, archive: &Asset, expected: &str, executable: &Path) -> Result<()> {
@@ -109,11 +133,16 @@ fn install_release(stage: &Path, archive: &Asset, expected: &str, executable: &P
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&replacement, fs::Permissions::from_mode(0o755))?;
     }
-    replace_binary(&replacement, executable)?;
-    println!(
-        "updated recall to {}",
-        latest_version_from_archive(&archive.name)?
-    );
+    match replace_binary(&replacement, executable)? {
+        Replacement::Complete => println!(
+            "updated recall to {}",
+            latest_version_from_archive(&archive.name)?
+        ),
+        #[cfg(windows)]
+        Replacement::Pending => {
+            println!("update staged; close all recall sessions to finish replacing it")
+        }
+    }
     Ok(())
 }
 
@@ -250,13 +279,14 @@ fn extract_binary(archive: &Path, destination: &Path) -> Result<()> {
 }
 
 #[cfg(unix)]
-fn replace_binary(replacement: &Path, executable: &Path) -> Result<()> {
+fn replace_binary(replacement: &Path, executable: &Path) -> Result<Replacement> {
     fs::rename(replacement, executable)
-        .with_context(|| format!("replacing {}", executable.display()))
+        .with_context(|| format!("replacing {}", executable.display()))?;
+    Ok(Replacement::Complete)
 }
 
 #[cfg(windows)]
-fn replace_binary(replacement: &Path, executable: &Path) -> Result<()> {
+fn replace_binary(replacement: &Path, executable: &Path) -> Result<Replacement> {
     let pending = executable.with_extension("exe.recall-new");
     fs::rename(replacement, &pending)?;
     let script = std::env::temp_dir().join(format!("recall-update-{}.cmd", std::process::id()));
@@ -264,7 +294,7 @@ fn replace_binary(replacement: &Path, executable: &Path) -> Result<()> {
     fs::write(
         &script,
         format!(
-            "@echo off\r\n:wait\r\ntasklist /FI \"PID eq {pid}\" /NH | find \"{pid}\" >nul\r\nif not errorlevel 1 (\r\n  timeout /t 1 /nobreak >nul\r\n  goto wait\r\n)\r\nmove /Y \"{}\" \"{}\" >nul\r\ndel \"%~f0\"\r\n",
+            "@echo off\r\n:wait\r\ntasklist /FI \"PID eq {pid}\" /NH | find \"{pid}\" >nul\r\nif not errorlevel 1 (\r\n  timeout /t 1 /nobreak >nul\r\n  goto wait\r\n)\r\n:replace\r\nmove /Y \"{}\" \"{}\" >nul\r\nif errorlevel 1 (\r\n  timeout /t 1 /nobreak >nul\r\n  goto replace\r\n)\r\ndel \"%~f0\"\r\n",
             pending.display(),
             executable.display()
         ),
@@ -273,8 +303,13 @@ fn replace_binary(replacement: &Path, executable: &Path) -> Result<()> {
         .args(["/C", &script.to_string_lossy()])
         .spawn()
         .context("starting the Windows update helper")?;
-    println!("updated recall; restart the terminal to use the new version");
-    Ok(())
+    Ok(Replacement::Pending)
+}
+
+enum Replacement {
+    Complete,
+    #[cfg(windows)]
+    Pending,
 }
 
 fn checksum_for(text: &str, archive: &str) -> Result<String> {
@@ -338,6 +373,14 @@ fn latest_version_from_archive(name: &str) -> Result<&str> {
 
 fn cache_path() -> Option<PathBuf> {
     Some(dirs::cache_dir()?.join("recall").join("update.json"))
+}
+
+fn cache_due(cache: Option<&UpdateCache>, now: u64) -> bool {
+    cache.is_none_or(|cache| now.saturating_sub(cache.checked_at) >= CHECK_INTERVAL.as_secs())
+}
+
+fn cache_latest(latest: Option<String>, previous: Option<String>) -> Option<String> {
+    latest.or(previous)
 }
 
 fn read_cache(path: &Path) -> Option<UpdateCache> {
@@ -405,6 +448,17 @@ mod tests {
             checksum,
             "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
         );
+    }
+
+    #[test]
+    fn refreshes_stale_update_cache_and_preserves_known_version_on_failure() {
+        let fresh = UpdateCache {
+            checked_at: 100,
+            latest: Some("v0.2.0".into()),
+        };
+        assert!(!cache_due(Some(&fresh), 101));
+        assert!(cache_due(Some(&fresh), 100 + CHECK_INTERVAL.as_secs()));
+        assert_eq!(cache_latest(None, fresh.latest), Some("v0.2.0".to_string()));
     }
 
     #[cfg(not(windows))]
