@@ -181,13 +181,16 @@ recall import atuin --days 30  # 仅最近 30 天
 | `Tab` | 编辑选中命令（插入到提示符） |
 | `Ctrl+Enter` | 执行选中命令 |
 | `Ctrl+E` | 执行（终端无法区分 Ctrl+Enter 时的回退键） |
-| `Ctrl+Y` / `y` | 复制命令 |
-| `Ctrl+O` / `Y` | 复制输出 |
+| `Ctrl+T` | 切换当前 block 的选中状态 |
+| `Ctrl+Y` | 复制命令 |
+| `Ctrl+O` | 复制输出 |
 | `PgUp` / `PgDn`、`Home` / `End` | 滚动输出 |
 | `Esc` | 清空搜索 / 退出详情面板 |
 | `q` / `Ctrl+C` | 退出 |
 | `F1` | 切换帮助 |
 
+> [!note]
+>
 > `Tab` 和 `Ctrl+Enter` 依赖 shell 组件（`recall search --cmd-only`）。
 > `Ctrl+Enter` 需要终端模拟器能区分上报；否则请用 `Ctrl+E`。
 
