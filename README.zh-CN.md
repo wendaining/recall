@@ -10,6 +10,29 @@
 TUI 中浏览这些历史——每次执行都是一个独立的 *block*。它不改动你的终端模拟器，
 也不重新实现一个：它是一个 shell 侧工具，通过 PTY 透明地代理你的 shell。
 
+## 安装
+
+### 一行安装（推荐）
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/wendaining/recall/master/install.sh | sh
+```
+
+安装脚本会自动识别 Linux 或 macOS 及当前 CPU 架构，从最新的 GitHub Release
+下载对应二进制文件，校验 SHA-256 后安装到 `/usr/local/bin` 或
+`~/.local/bin`。安装完成后，请按脚本输出的提示配置 shell hook 和配置文件。
+脚本还会显示当前配置文件路径及简单的首次使用说明，包括进入 recall 后按 `F1`
+查看帮助。
+
+### 从源码构建
+
+```sh
+cargo build --release
+install -Dm755 target/release/recall ~/.local/bin/recall
+```
+
+确保 `~/.local/bin` 在 `PATH` 中。
+
 <img zoom="35%" alt="recall-display" src="https://github.com/user-attachments/assets/835ef068-b4d9-41e2-b5a6-738d5d58f01f" />
 
 ## 特性
@@ -31,15 +54,6 @@ TUI 中浏览这些历史——每次执行都是一个独立的 *block*。它�
 - Rust（用于构建）——基于 Rust 1.88+ 开发
 - SQLite 已内置，无系统依赖
 - zsh、bash 或 fish 用于 shell 集成
-
-## 构建
-
-```sh
-cargo build --release
-install -Dm755 target/release/recall ~/.local/bin/recall
-```
-
-确保 `~/.local/bin` 在 `PATH` 中。
 
 ## 安装配置
 

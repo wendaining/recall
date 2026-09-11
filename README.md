@@ -12,6 +12,30 @@ execution is a distinct *block*. It does not touch your terminal emulator or
 reimplement one: it is a shell-side tool that transparently proxies your shell
 through a PTY.
 
+## Install
+
+### One-line installer (recommended)
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/wendaining/recall/master/install.sh | sh
+```
+
+The installer detects Linux or macOS and the current CPU architecture, downloads
+the matching binary from the latest GitHub Release, verifies its SHA-256
+checksum, and installs it into `/usr/local/bin` or `~/.local/bin`. When it
+finishes, follow the printed shell-hook and configuration instructions. It also
+shows the active configuration path and a few first-run tips, including pressing
+`F1` inside recall for help.
+
+### Build from source
+
+```sh
+cargo build --release
+install -Dm755 target/release/recall ~/.local/bin/recall
+```
+
+Make sure `~/.local/bin` is on `PATH`.
+
 <img zoom="35%" alt="recall-display" src="https://github.com/user-attachments/assets/835ef068-b4d9-41e2-b5a6-738d5d58f01f" />
 
 ## Features
@@ -39,15 +63,6 @@ through a PTY.
 - Rust (to build) — developed against Rust 1.88+
 - SQLite is bundled, no system dependency
 - zsh, bash or fish for shell integration
-
-## Build
-
-```sh
-cargo build --release
-install -Dm755 target/release/recall ~/.local/bin/recall
-```
-
-Make sure `~/.local/bin` is on `PATH`.
 
 ## Setup
 
