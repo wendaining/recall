@@ -177,6 +177,8 @@ recall import atuin --days 30  # 仅最近 30 天
 | --- | --- |
 | 直接输入 | 搜索命令和输出 |
 | `↑` / `↓` | 搜索面板移动选择 / 详情面板滚动输出 |
+| `Alt+←` / `Alt+→` | 调整列表与详情面板宽度（跨会话记忆） |
+| `[` / `]` | 在详情面板中调整面板宽度 |
 | `Enter` | 在搜索与详情面板之间切换焦点 |
 | `Tab` | 编辑选中命令（插入到提示符） |
 | `Ctrl+Enter` | 执行选中命令 |
@@ -236,6 +238,7 @@ backend = "auto"             # auto | arboard | osc52 | wl-copy | xclip | xsel
 
 [ui]
 search_key = "alt-r"         # 打开 recall 的按键（alt-r、ctrl-t、"ctrl-x ctrl-r"）
+list_width_pct = 42          # 列表面板初始宽度；在 TUI 中调整后会持久化
 ```
 
 ## 工作原理

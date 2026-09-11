@@ -197,6 +197,8 @@ Open the TUI with `recall` (or the Alt+R widget):
 | --- | --- |
 | type | search commands and output |
 | `↑` / `↓` | move selection (search) / scroll output (detail) |
+| `Alt+←` / `Alt+→` | resize the list and detail panes (persisted across sessions) |
+| `[` / `]` | resize the panes while in detail focus |
 | `Enter` | switch focus between search and detail |
 | `Tab` | edit selected command (insert into the prompt) |
 | `Ctrl+Enter` | execute selected command |
@@ -259,6 +261,7 @@ backend = "auto"             # auto | arboard | osc52 | wl-copy | xclip | xsel
 
 [ui]
 search_key = "alt-r"         # key that opens recall (alt-r, ctrl-t, "ctrl-x ctrl-r")
+list_width_pct = 42          # initial list pane width; resizing in the TUI persists
 ```
 
 ## How it works
