@@ -70,7 +70,7 @@ pub struct ProxyArgs {
 #[derive(Debug, Args)]
 pub struct InitArgs {
     /// Shell to emit integration for.
-    #[arg(value_parser = ["zsh", "bash", "fish", "pwsh", "powershell"])]
+    #[arg(value_parser = crate::shell::parse_integration_name)]
     pub shell: String,
 }
 

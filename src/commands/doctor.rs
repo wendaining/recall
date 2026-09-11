@@ -3,6 +3,7 @@ use rusqlite::{Connection, OpenFlags};
 
 use crate::config::Config;
 use crate::db::{Db, queries, schema};
+use crate::shell::Shell;
 use crate::util;
 
 pub fn run() -> Result<()> {
@@ -128,7 +129,7 @@ fn check_shell_integration(cfg: &Config) {
     );
 
     let shell = util::login_shell();
-    match util::shell_rc_path(&shell) {
+    match Shell::from_command(&shell).and_then(Shell::rc_path) {
         Some(path) => {
             let configured = std::fs::read_to_string(&path)
                 .map(|text| text.contains("recall init"))

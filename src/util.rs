@@ -1,5 +1,6 @@
 use std::io::Write;
-use std::path::{Path, PathBuf};
+#[cfg(windows)]
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::config::Config;
@@ -58,25 +59,10 @@ fn detect_shell_from_parent() -> Option<String> {
             pid = parent;
             continue;
         }
-        let shell = known_shell(&stem)?;
-        return Some(shell_command(shell, process.exe()));
+        let shell = crate::shell::Shell::from_name(&stem)?;
+        return Some(shell_command(shell.name, process.exe()));
     }
     None
-}
-
-/// Map a lowercased process image stem to a spawnable shell name.
-#[cfg(windows)]
-fn known_shell(stem: &str) -> Option<&'static str> {
-    match stem {
-        "pwsh" => Some("pwsh"),
-        "powershell" => Some("powershell"),
-        "cmd" => Some("cmd"),
-        "bash" => Some("bash"),
-        "zsh" => Some("zsh"),
-        "fish" => Some("fish"),
-        "nu" => Some("nu"),
-        _ => None,
-    }
 }
 
 /// Prefer the parent's full executable path (needed for Git Bash/MSYS shells),
@@ -105,51 +91,6 @@ fn default_windows_shell() -> String {
         "powershell".to_string()
     } else {
         std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string())
-    }
-}
-
-/// Startup file where `recall init` should be added for the given shell.
-pub fn shell_rc_path(shell: &str) -> Option<PathBuf> {
-    let name = Path::new(shell)
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or(shell);
-    let home = dirs::home_dir();
-    let zdotdir = std::env::var_os("ZDOTDIR").map(PathBuf::from);
-    let config_dir = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .or_else(|| home.as_ref().map(|home| home.join(".config")));
-    rc_path_for(
-        name,
-        home.as_deref(),
-        zdotdir.as_deref(),
-        config_dir.as_deref(),
-        dirs::document_dir().as_deref(),
-    )
-}
-
-fn rc_path_for(
-    shell: &str,
-    home: Option<&Path>,
-    zdotdir: Option<&Path>,
-    config_dir: Option<&Path>,
-    document_dir: Option<&Path>,
-) -> Option<PathBuf> {
-    match shell {
-        "zsh" => Some(zdotdir.or(home)?.join(".zshrc")),
-        "bash" => Some(home?.join(".bashrc")),
-        "fish" => Some(config_dir?.join("fish").join("config.fish")),
-        "pwsh" => Some(
-            document_dir?
-                .join("PowerShell")
-                .join("Microsoft.PowerShell_profile.ps1"),
-        ),
-        "powershell" => Some(
-            document_dir?
-                .join("WindowsPowerShell")
-                .join("Microsoft.PowerShell_profile.ps1"),
-        ),
-        _ => None,
     }
 }
 
@@ -204,65 +145,5 @@ pub fn format_duration(ns: i64) -> String {
     } else {
         let secs = ms / 1000.0;
         format!("{}m{:.0}s", (secs / 60.0) as u64, secs % 60.0)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn resolves_rc_paths_per_shell() {
-        let home = Path::new("/home/u");
-        let config = Path::new("/home/u/.config");
-        let documents = Path::new("C:/Users/u/Documents");
-
-        assert_eq!(
-            rc_path_for("zsh", Some(home), None, Some(config), None).unwrap(),
-            home.join(".zshrc")
-        );
-        assert_eq!(
-            rc_path_for(
-                "zsh",
-                Some(home),
-                Some(Path::new("/zdot")),
-                Some(config),
-                None
-            )
-            .unwrap(),
-            Path::new("/zdot/.zshrc")
-        );
-        assert_eq!(
-            rc_path_for("bash", Some(home), None, Some(config), None).unwrap(),
-            home.join(".bashrc")
-        );
-        assert_eq!(
-            rc_path_for("fish", Some(home), None, Some(config), None).unwrap(),
-            config.join("fish").join("config.fish")
-        );
-        assert_eq!(
-            rc_path_for("pwsh", None, None, None, Some(documents)).unwrap(),
-            documents
-                .join("PowerShell")
-                .join("Microsoft.PowerShell_profile.ps1")
-        );
-        assert_eq!(
-            rc_path_for("powershell", None, None, None, Some(documents)).unwrap(),
-            documents
-                .join("WindowsPowerShell")
-                .join("Microsoft.PowerShell_profile.ps1")
-        );
-        assert!(rc_path_for("nu", Some(home), None, Some(config), None).is_none());
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn maps_known_shell_process_names() {
-        assert_eq!(known_shell("pwsh"), Some("pwsh"));
-        assert_eq!(known_shell("powershell"), Some("powershell"));
-        assert_eq!(known_shell("cmd"), Some("cmd"));
-        assert_eq!(known_shell("bash"), Some("bash"));
-        assert_eq!(known_shell("explorer"), None);
-        assert_eq!(known_shell("recall"), None);
     }
 }
