@@ -97,13 +97,27 @@ recall init fish | source
 ```
 
 这会安装捕获钩子，以及一个 **Alt+R** 组件：打开 TUI 并把选中的命令插入到提示符。
-zsh 下可用 `RECALL_KEY` 覆盖按键，bash/fish 下可自行重新绑定。
+按键由配置里的 `[ui].search_key` 决定，详见下文。
+
+#### 设置快捷键
+
+按键在 `~/.config/recall/config.toml` 中以语义化名称配置，由 `recall init`
+按不同 shell 转换：
+
+```toml
+[ui]
+search_key = "alt-r"   # 可选 alt-r、ctrl-t，或组合键 "ctrl-x ctrl-r"
+```
+
+支持的写法有 `alt-<字母>`、`ctrl-<字母>`，或用空格分隔的组合键（如
+`"ctrl-x ctrl-r"`）。默认是 `alt-r`。修改后重开 shell（或重新执行
+`eval "$(recall init zsh)"`）即可生效。
 
 #### macOS 的 Option 键
 
 Mac 键盘没有 `Alt`，对应的是 `Option`（`⌥`）。默认情况下多数 macOS 终端把
 `Option` 当作组合键，`Option+R` 会输入 `®` 而不是发送 `Meta-R`，组件无法打开。
-在终端里把 Option 设为 Meta：
+可以二选一：在终端里把 Option 设为 Meta：
 
 | 终端 | 设置项 |
 | --- | --- |
@@ -111,14 +125,7 @@ Mac 键盘没有 `Alt`，对应的是 `Option`（`⌥`）。默认情况下多�
 | iTerm2 | Preferences → Profiles → Keys → *Left Option Key: Esc+* |
 | Ghostty | `macos-option-as-alt = true` |
 
-也可以用 `RECALL_KEY` 换成别的按键（例如不使用 atuin 时用 `^R`，或 `^T`），
-需要写在加载集成之前：
-
-```zsh
-# ~/.zshrc（在 `eval "$(recall init zsh)"` 之前）
-export RECALL_KEY='^R'
-```
-
+或者换一个按键，例如 `"ctrl-x ctrl-r"`（安装脚本在 macOS 上会提供该选项）。
 运行 `recall doctor` 可确认 shell 集成和 `PATH` 状态。
 
 未使用代理时，recall 仍会在后台记录命令元数据。要捕获输出，需要让 shell 运行在
@@ -223,6 +230,9 @@ auto_prune = true
 
 [clipboard]
 backend = "auto"             # auto | arboard | osc52 | wl-copy | xclip | xsel
+
+[ui]
+search_key = "alt-r"         # 打开 recall 的按键（alt-r、ctrl-t、"ctrl-x ctrl-r"）
 ```
 
 ## 工作原理

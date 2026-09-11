@@ -109,18 +109,32 @@ recall init fish | source
 ```
 
 This installs the capture hooks and an **Alt+R** widget that opens the TUI and
-inserts the selected command into your prompt. Override the key with
-`RECALL_KEY` (zsh), or rebind in bash/fish.
+inserts the selected command into your prompt. The key is set by
+`[ui].search_key` in the config; see below for details.
 
 Without the proxy, recall still records command metadata in the background. To
 capture output, run your shell under the proxy.
+
+#### Choosing the search key
+
+The key is configured in `~/.config/recall/config.toml` as a semantic name that
+`recall init` translates for each shell:
+
+```toml
+[ui]
+search_key = "alt-r"   # alt-r, ctrl-t, or a two-stroke sequence "ctrl-x ctrl-r"
+```
+
+Supported forms are `alt-<letter>`, `ctrl-<letter>`, or a space-separated
+sequence such as `"ctrl-x ctrl-r"`. The default is `alt-r`. After editing the
+file, reopen the shell (or re-run `eval "$(recall init zsh)"`) to apply it.
 
 #### macOS: the Option key
 
 Mac keyboards have no `Alt`; the equivalent is `Option` (`⌥`). By default most
 macOS terminals treat `Option` as a compose key, so `Option+R` types `®` instead
-of sending `Meta-R`, and the widget never opens. Enable Option-as-Meta in your
-terminal:
+of sending `Meta-R`, and the widget never opens. Either enable Option-as-Meta in
+your terminal:
 
 | Terminal | Setting |
 | --- | --- |
@@ -128,15 +142,8 @@ terminal:
 | iTerm2 | Preferences → Profiles → Keys → *Left Option Key: Esc+* |
 | Ghostty | `macos-option-as-alt = true` |
 
-Alternatively bind another key with `RECALL_KEY` before the integration is
-loaded (for example `^R` if you do not use atuin, or `^T`):
-
-```zsh
-# ~/.zshrc (before `eval "$(recall init zsh)"`)
-export RECALL_KEY='^R'
-```
-
-Run `recall doctor` to confirm the shell integration and `PATH`.
+or pick another key, for example `"ctrl-x ctrl-r"` (the installer offers this on
+macOS). Run `recall doctor` to confirm the shell integration and `PATH`.
 
 ### 2. Enable output capture with the PTY proxy
 
@@ -248,6 +255,9 @@ auto_prune = true
 
 [clipboard]
 backend = "auto"             # auto | arboard | osc52 | wl-copy | xclip | xsel
+
+[ui]
+search_key = "alt-r"         # key that opens recall (alt-r, ctrl-t, "ctrl-x ctrl-r")
 ```
 
 ## How it works

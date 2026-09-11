@@ -144,7 +144,8 @@ fn check_shell_integration(cfg: &Config) {
 fn check_macos_option_key() {
     println!("[macOS Option key]");
     println!("  Alt+R sends Option+R. If it inserts '®', enable \"Use Option as Meta key\"");
-    println!("  in your terminal (Terminal.app, iTerm2, Ghostty), or set RECALL_KEY.");
+    println!("  in your terminal (Terminal.app, iTerm2, Ghostty), or set [ui].search_key");
+    println!("  to another key such as \"ctrl-x ctrl-r\".");
 }
 
 #[cfg(not(target_os = "macos"))]
