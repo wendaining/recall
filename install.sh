@@ -235,6 +235,64 @@ choose_search_key() {
     esac
 }
 
+offer_history_import() {
+    import_kind=$1
+    import_shell=$2
+    import_path=$3
+    import_label=$4
+    [ -f "$import_path" ] || return 0
+
+    case "${RECALL_IMPORT_HISTORY:-ask}" in
+        1 | true | yes) import_answer=yes ;;
+        0 | false | no) return 0 ;;
+        ask | "")
+            if [ ! -r /dev/tty ] || [ ! -w /dev/tty ]; then
+                return 0
+            fi
+            say ""
+            printf 'Import existing %s from %s? [Y/n] ' \
+                "$import_label" "$import_path" > /dev/tty
+            IFS= read -r import_answer < /dev/tty || import_answer=no
+            ;;
+        *) die "RECALL_IMPORT_HISTORY must be yes, no, or ask" ;;
+    esac
+
+    case "$import_answer" in
+        "" | y | Y | yes | YES | Yes) ;;
+        *) return 0 ;;
+    esac
+
+    if [ "$import_kind" = atuin ]; then
+        if "$destination" import atuin --path "$import_path"; then
+            say "Imported $import_label."
+        else
+            say "Warning: could not import $import_label; installation will continue."
+        fi
+    elif "$destination" import history "$import_shell" --path "$import_path"; then
+        say "Imported $import_label."
+    else
+        say "Warning: could not import $import_label; installation will continue."
+    fi
+}
+
+offer_detected_history() {
+    [ -n "${HOME:-}" ] || return 0
+
+    case "${XDG_DATA_HOME:-}" in
+        /*) history_data_dir=$XDG_DATA_HOME ;;
+        *) history_data_dir="$HOME/.local/share" ;;
+    esac
+    offer_history_import atuin "" \
+        "$history_data_dir/atuin/history.db" "atuin history"
+
+    offer_history_import history zsh \
+        "${ZDOTDIR:-$HOME}/.zsh_history" "zsh history"
+    offer_history_import history bash \
+        "$HOME/.bash_history" "bash history"
+    offer_history_import history fish \
+        "$history_data_dir/fish/fish_history" "fish history"
+}
+
 proxy_setup=none
 choose_proxy_setup
 search_key=""
@@ -316,6 +374,8 @@ fi
 if [ -n "$search_key" ]; then
     set_search_key "$config_path" "$search_key"
 fi
+
+offer_detected_history
 
 say ""
 say "recall is ready."

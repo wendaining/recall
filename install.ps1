@@ -7,6 +7,7 @@
 #     RECALL_INSTALL_DIR        install directory (default: $HOME\.local\bin)
 #     RECALL_VERSION            release tag to install (default: latest)
 #     RECALL_NO_MODIFY_PROFILE  set to skip $PROFILE changes
+#     RECALL_IMPORT_HISTORY     yes, no, or ask (default: ask)
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -19,6 +20,44 @@ function Say($message) { Write-Host $message }
 function Die($message) {
     Write-Error "recall installer: $message"
     exit 1
+}
+
+function Should-ImportHistory($label, $path) {
+    $preference = if ($env:RECALL_IMPORT_HISTORY) {
+        $env:RECALL_IMPORT_HISTORY.ToLowerInvariant()
+    } else {
+        'ask'
+    }
+    switch ($preference) {
+        { $_ -in @('1', 'true', 'yes') } { return $true }
+        { $_ -in @('0', 'false', 'no') } { return $false }
+        { $_ -in @('', 'ask') } { }
+        default { Die 'RECALL_IMPORT_HISTORY must be yes, no, or ask' }
+    }
+
+    try {
+        if ([Console]::IsInputRedirected) { return $false }
+    } catch {
+        return $false
+    }
+    $answer = Read-Host "Import existing $label from $path`? [Y/n]"
+    return $answer -in @('', 'y', 'Y', 'yes', 'YES', 'Yes')
+}
+
+function Offer-HistoryImport($kind, $shell, $path, $label) {
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return }
+    if (-not (Should-ImportHistory $label $path)) { return }
+
+    if ($kind -eq 'atuin') {
+        & $destination import atuin --path $path
+    } else {
+        & $destination import history $shell --path $path
+    }
+    if ($LASTEXITCODE -eq 0) {
+        Say "Imported $label."
+    } else {
+        Say "Warning: could not import $label; installation will continue."
+    }
 }
 
 # GitHub requires TLS 1.2, which older Windows PowerShell does not negotiate by
@@ -138,6 +177,21 @@ try {
         Say "Config: created $configPath"
     } elseif ($configPath) {
         Say "Config: kept existing $configPath"
+    }
+
+    $historyDataDir = if ($env:XDG_DATA_HOME -and [IO.Path]::IsPathRooted($env:XDG_DATA_HOME)) {
+        $env:XDG_DATA_HOME
+    } else {
+        Join-Path $HOME '.local\share'
+    }
+    Offer-HistoryImport 'atuin' '' (Join-Path $historyDataDir 'atuin\history.db') 'atuin history'
+    $zshHome = if ($env:ZDOTDIR) { $env:ZDOTDIR } else { $HOME }
+    Offer-HistoryImport 'history' 'zsh' (Join-Path $zshHome '.zsh_history') 'zsh history'
+    Offer-HistoryImport 'history' 'bash' (Join-Path $HOME '.bash_history') 'bash history'
+    Offer-HistoryImport 'history' 'fish' (Join-Path $historyDataDir 'fish\fish_history') 'fish history'
+    if ($env:APPDATA) {
+        $psHistory = Join-Path $env:APPDATA 'Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt'
+        Offer-HistoryImport 'history' 'pwsh' $psHistory 'PowerShell history'
     }
 
     Say ''
