@@ -24,6 +24,19 @@ cargo build --release
 
 There is no separate lint script; use `cargo fmt` + `cargo clippy`.
 
+### Installing a release build
+
+The installed binary at `~/.local/bin/recall` may be in use as a running shell
+proxy, so a plain `cp` fails with `ETXTBSY` ("text file busy"). Rename it first,
+then replace:
+
+```sh
+cargo build --release
+mv ~/.local/bin/recall ~/.local/bin/recall.old
+cp target/release/recall ~/.local/bin/recall
+rm -f ~/.local/bin/recall.old
+```
+
 ## Architecture
 
 ```
