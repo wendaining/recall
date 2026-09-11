@@ -11,7 +11,6 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
 
 jobs:
   changes:
@@ -59,6 +58,8 @@ jobs:
       - if: matrix.os == 'ubuntu-latest'
         run: cargo clippy --all-targets
       - run: cargo test
+        env:
+          RUST_BACKTRACE: 1
 
   shell:
     needs: changes
