@@ -2,7 +2,7 @@ use anyhow::Result;
 use rusqlite::Connection;
 
 /// Current schema version. Bump and add a migration branch when changing.
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS blocks (
@@ -57,6 +57,13 @@ CREATE TRIGGER IF NOT EXISTS blocks_au AFTER UPDATE ON blocks BEGIN
 END;
 "#;
 
+const SCHEMA_V2: &str = r#"
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+"#;
+
 /// Configure connection pragmas and apply any pending migrations.
 pub fn migrate(conn: &Connection) -> Result<()> {
     conn.execute_batch(
@@ -70,8 +77,35 @@ pub fn migrate(conn: &Connection) -> Result<()> {
     if version < 1 {
         conn.execute_batch(SCHEMA_V1)?;
     }
+    if version < 2 {
+        conn.execute_batch(SCHEMA_V2)?;
+    }
     if version < SCHEMA_VERSION {
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn migrates_v1_database_to_settings_table() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA_V1).unwrap();
+        conn.pragma_update(None, "user_version", 1).unwrap();
+
+        migrate(&conn).unwrap();
+
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('ui.list_width_pct', '55')",
+            [],
+        )
+        .unwrap();
+        let version: i64 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+    }
 }

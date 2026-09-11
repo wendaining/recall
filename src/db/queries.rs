@@ -183,6 +183,27 @@ fn like_search(conn: &Connection, query: &str, limit: usize) -> Result<Vec<Block
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
+/// Read a persisted key/value setting. Returns `None` when unset.
+pub fn get_setting(conn: &Connection, key: &str) -> Result<Option<String>> {
+    let mut stmt = conn.prepare("SELECT value FROM settings WHERE key = ?1")?;
+    let mut rows = stmt.query_map(params![key], |row| row.get::<_, String>(0))?;
+    match rows.next() {
+        Some(row) => Ok(Some(row?)),
+        None => Ok(None),
+    }
+}
+
+/// Persist a key/value setting, replacing any previous value.
+pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![key, value],
+    )
+    .context("writing setting")?;
+    Ok(())
+}
+
 pub fn count(conn: &Connection) -> Result<i64> {
     Ok(conn.query_row("SELECT COUNT(*) FROM blocks", [], |row| row.get(0))?)
 }
@@ -273,6 +294,21 @@ mod tests {
         insert(&db.conn, &sample("a", "ls -la", Some("total 0"), 1)).unwrap();
         let hits = search(&db.conn, "ls", 10).unwrap();
         assert_eq!(hits.len(), 1);
+    }
+
+    #[test]
+    fn settings_roundtrip() {
+        let db = Db::open_in_memory().unwrap();
+        assert_eq!(get_setting(&db.conn, "ui.list_width_pct").unwrap(), None);
+
+        set_setting(&db.conn, "ui.list_width_pct", "55").unwrap();
+        set_setting(&db.conn, "ui.list_width_pct", "60").unwrap();
+        assert_eq!(
+            get_setting(&db.conn, "ui.list_width_pct")
+                .unwrap()
+                .as_deref(),
+            Some("60")
+        );
     }
 
     #[test]
