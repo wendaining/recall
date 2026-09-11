@@ -1,5 +1,6 @@
+use std::ffi::{OsStr, OsString};
 use std::io::{IsTerminal, Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -108,6 +109,9 @@ pub fn run(config: Arc<Config>, shell: String) -> Result<i32> {
     let mut cmd = CommandBuilder::new(&shell);
     cmd.env("RECALL_PROXY_ACTIVE", "1");
     cmd.env("RECALL_SESSION", &session);
+    if let Some(path) = recall_path() {
+        cmd.env("PATH", path);
+    }
     if let Ok(cwd) = std::env::current_dir() {
         cmd.cwd(cwd);
     }
@@ -289,6 +293,19 @@ fn finalize(
         kind: classified.kind,
         created_at: util::now_ns(),
     }
+}
+
+fn recall_path() -> Option<OsString> {
+    let dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    merge_path(std::env::var_os("PATH").as_deref(), &dir)
+}
+
+fn merge_path(existing: Option<&OsStr>, dir: &Path) -> Option<OsString> {
+    let mut paths = vec![dir.to_path_buf()];
+    if let Some(existing) = existing {
+        paths.extend(std::env::split_paths(existing).filter(|path| path != dir));
+    }
+    std::env::join_paths(paths).ok()
 }
 
 fn build_exclude(patterns: &[String]) -> regex::RegexSet {
@@ -526,6 +543,34 @@ mod tests {
         assert!(block.output.is_none());
         assert!(!block.output_truncated);
         assert_eq!(block.kind, BlockKind::OutputExcluded);
+    }
+
+    #[test]
+    fn merge_path_prepends_dir_and_drops_duplicate() {
+        let dir = Path::new("/opt/recall/bin");
+        let existing = std::env::join_paths(["/usr/bin", "/opt/recall/bin", "/bin"]).unwrap();
+
+        let merged = merge_path(Some(existing.as_os_str()), dir).unwrap();
+        let parts: Vec<PathBuf> = std::env::split_paths(&merged).collect();
+
+        assert_eq!(
+            parts,
+            [
+                PathBuf::from("/opt/recall/bin"),
+                PathBuf::from("/usr/bin"),
+                PathBuf::from("/bin"),
+            ]
+        );
+    }
+
+    #[test]
+    fn merge_path_handles_missing_existing_path() {
+        let dir = Path::new("/opt/recall/bin");
+
+        let merged = merge_path(None, dir).unwrap();
+        let parts: Vec<PathBuf> = std::env::split_paths(&merged).collect();
+
+        assert_eq!(parts, [PathBuf::from("/opt/recall/bin")]);
     }
 
     #[test]
