@@ -5,7 +5,6 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
@@ -62,6 +61,11 @@ struct CaptureState {
     active: Option<Active>,
 }
 
+enum WriterMessage {
+    Block(Box<Block>),
+    Shutdown,
+}
+
 /// State shared between the byte-forwarding loop and the writer thread.
 struct Shared {
     state: Mutex<CaptureState>,
@@ -71,8 +75,7 @@ struct Shared {
     hostname: Option<String>,
     exclude: regex::RegexSet,
     exclude_output: regex::RegexSet,
-    tx: Sender<Block>,
-    pending: AtomicUsize,
+    tx: Sender<WriterMessage>,
     markers_seen: AtomicUsize,
     input_bytes: Arc<AtomicUsize>,
 }
@@ -90,7 +93,7 @@ pub fn run(config: Arc<Config>, shell: String, login: bool) -> Result<i32> {
         .unwrap_or("sh")
         .to_string();
 
-    let (tx, rx) = mpsc::channel::<Block>();
+    let (tx, rx) = mpsc::channel::<WriterMessage>();
     let shared = Arc::new(Shared {
         state: Mutex::new(CaptureState::default()),
         config: config.clone(),
@@ -100,12 +103,11 @@ pub fn run(config: Arc<Config>, shell: String, login: bool) -> Result<i32> {
         exclude: build_exclude(&config.proxy.exclude),
         exclude_output: build_exclude(&config.proxy.exclude_output),
         tx,
-        pending: AtomicUsize::new(0),
         markers_seen: AtomicUsize::new(0),
         input_bytes: Arc::new(AtomicUsize::new(0)),
     });
 
-    spawn_writer(rx, config.general.db_path.clone(), shared.clone());
+    let writer_thread = spawn_writer(rx, config.general.db_path.clone());
 
     let pty_system = native_pty_system();
     let pair = pty_system.openpty(platform::terminal_size().unwrap_or(PtySize {
@@ -207,7 +209,8 @@ pub fn run(config: Arc<Config>, shell: String, login: bool) -> Result<i32> {
     running.store(false, Ordering::SeqCst);
     let code = code_rx.recv().unwrap_or(1);
 
-    drain_pending(&shared, Duration::from_millis(500));
+    let _ = shared.tx.send(WriterMessage::Shutdown);
+    let _ = writer_thread.join();
 
     drop(raw_guard);
 
@@ -266,8 +269,7 @@ fn apply_event(shared: &Arc<Shared>, event: Request) {
                 && active.id == id
             {
                 let block = finalize(active, exit, duration_ns, shared);
-                shared.pending.fetch_add(1, Ordering::SeqCst);
-                let _ = shared.tx.send(block);
+                let _ = shared.tx.send(WriterMessage::Block(Box::new(block)));
             }
         }
         Request::Prompt => {
@@ -377,7 +379,7 @@ fn looks_secret(command: &str, output: &Option<Vec<u8>>) -> bool {
     }
 }
 
-fn spawn_writer(rx: Receiver<Block>, db_path: PathBuf, shared: Arc<Shared>) {
+fn spawn_writer(rx: Receiver<WriterMessage>, db_path: PathBuf) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         let db = match Db::open(&db_path) {
             Ok(db) => db,
@@ -386,25 +388,57 @@ fn spawn_writer(rx: Receiver<Block>, db_path: PathBuf, shared: Arc<Shared>) {
                 return;
             }
         };
-        while let Ok(block) = rx.recv() {
-            if let Err(err) = queries::insert(&db.conn, &block) {
-                util::eprintln_flush(&format!("recall: insert failed: {err}"));
+        while let Ok(message) = rx.recv() {
+            match message {
+                WriterMessage::Block(block) => {
+                    if let Err(err) = queries::insert(&db.conn, &block) {
+                        util::eprintln_flush(&format!("recall: insert failed: {err}"));
+                    }
+                }
+                WriterMessage::Shutdown => break,
             }
-            shared.pending.fetch_sub(1, Ordering::SeqCst);
         }
-    });
-}
-
-fn drain_pending(shared: &Arc<Shared>, timeout: Duration) {
-    let deadline = Instant::now() + timeout;
-    while shared.pending.load(Ordering::SeqCst) > 0 && Instant::now() < deadline {
-        thread::sleep(Duration::from_millis(10));
-    }
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_db_path() -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir()
+            .join(format!("recall-proxy-{}-{nonce}", std::process::id()))
+            .join("recall.db")
+    }
+
+    #[test]
+    fn writer_shutdown_flushes_queued_blocks() {
+        let db_path = temp_db_path();
+        let (tx, rx) = mpsc::channel();
+        let writer = spawn_writer(rx, db_path.clone());
+        let block = Block {
+            id: "block-1".to_string(),
+            command: "echo queued".to_string(),
+            started_at: 1,
+            kind: BlockKind::Empty,
+            created_at: 1,
+            ..Default::default()
+        };
+
+        tx.send(WriterMessage::Block(Box::new(block))).unwrap();
+        tx.send(WriterMessage::Shutdown).unwrap();
+        writer.join().unwrap();
+
+        let db = Db::open(&db_path).unwrap();
+        assert_eq!(queries::count(&db.conn).unwrap(), 1);
+        drop(db);
+        std::fs::remove_dir_all(db_path.parent().unwrap()).unwrap();
+    }
 
     #[test]
     fn excluded_output_keeps_metadata_without_buffering() {
@@ -420,7 +454,6 @@ mod tests {
             exclude: build_exclude(&config.proxy.exclude),
             exclude_output: build_exclude(&config.proxy.exclude_output),
             tx,
-            pending: AtomicUsize::new(0),
             markers_seen: AtomicUsize::new(0),
             input_bytes: Arc::new(AtomicUsize::new(0)),
         });
@@ -450,7 +483,9 @@ mod tests {
                 duration_ns: Some(456),
             },
         );
-        let block = rx.recv().unwrap();
+        let WriterMessage::Block(block) = rx.recv().unwrap() else {
+            panic!("expected captured block");
+        };
 
         assert_eq!(block.command, "tail -f app.log");
         assert_eq!(block.cwd.as_deref(), Some("/tmp"));
@@ -511,7 +546,6 @@ mod tests {
             exclude: build_exclude(&config.proxy.exclude),
             exclude_output: build_exclude(&config.proxy.exclude_output),
             tx,
-            pending: AtomicUsize::new(0),
             markers_seen: AtomicUsize::new(0),
             input_bytes: Arc::new(AtomicUsize::new(0)),
         });
@@ -538,7 +572,9 @@ mod tests {
             }
         }
 
-        let block = rx.recv().unwrap();
+        let WriterMessage::Block(block) = rx.recv().unwrap() else {
+            panic!("expected captured block");
+        };
         assert_eq!(block.command, "echo hi");
         assert_eq!(block.cwd.as_deref(), Some("C:/tmp"));
         assert_eq!(block.started_at, 42);
