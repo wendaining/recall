@@ -31,6 +31,7 @@ jobs:
               - '.github/workflows/ci.yml'
             shell:
               - 'shell/**'
+              - 'install.sh'
               - '.github/workflows/ci.yml'
 
   test:
@@ -63,6 +64,7 @@ jobs:
       # The integrations are embedded verbatim via include_str!, so the source
       # files can be checked directly without building.
       - run: |
+          sh -n install.sh
           zsh -n shell/recall.zsh
           bash -n shell/recall.bash
           fish -n shell/recall.fish
