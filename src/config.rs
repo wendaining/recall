@@ -217,20 +217,26 @@ mod tests {
 
     #[test]
     fn atuin_data_dir_matches_atuin_layout() {
-        let home = Path::new("C:/Users/u");
+        let home = Path::new("home-base");
 
         assert_eq!(
             atuin_data_dir(None, Some(home.to_path_buf())),
             home.join(".local").join("share").join("atuin")
         );
-        assert_eq!(
-            atuin_data_dir(Some(PathBuf::from("C:/xdg")), Some(home.to_path_buf())),
-            Path::new("C:/xdg").join("atuin")
-        );
         // A relative XDG_DATA_HOME is ignored, matching atuin's absolute-path rule.
         assert_eq!(
             atuin_data_dir(Some(PathBuf::from("relative")), Some(home.to_path_buf())),
             home.join(".local").join("share").join("atuin")
+        );
+        // An absolute XDG_DATA_HOME wins; build one for the host platform.
+        let xdg = if cfg!(windows) {
+            PathBuf::from(r"C:\xdg")
+        } else {
+            PathBuf::from("/xdg")
+        };
+        assert_eq!(
+            atuin_data_dir(Some(xdg.clone()), Some(home.to_path_buf())),
+            xdg.join("atuin")
         );
     }
 
