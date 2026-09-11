@@ -30,9 +30,82 @@ pub fn login_shell() -> String {
     std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
 }
 
+/// The user's shell, detected from the current process tree when possible so
+/// that `recall shell` starts the same shell the user is already in.
 #[cfg(windows)]
 pub fn login_shell() -> String {
-    std::env::var("COMSPEC").unwrap_or_else(|_| "powershell.exe".to_string())
+    detect_shell_from_parent()
+        .or_else(env_shell)
+        .unwrap_or_else(default_windows_shell)
+}
+
+/// Walk up the parent processes (skipping our own `recall` wrappers) looking for
+/// a known shell.
+#[cfg(windows)]
+fn detect_shell_from_parent() -> Option<String> {
+    use sysinfo::{ProcessesToUpdate, System};
+
+    let mut system = System::new();
+    system.refresh_processes(ProcessesToUpdate::All, true);
+    let mut pid = sysinfo::get_current_pid().ok()?;
+
+    for _ in 0..8 {
+        let parent = system.process(pid)?.parent()?;
+        let process = system.process(parent)?;
+        let name = process.name().to_string_lossy();
+        let stem = name.trim_end_matches(".exe").to_ascii_lowercase();
+        if stem == "recall" {
+            pid = parent;
+            continue;
+        }
+        let shell = known_shell(&stem)?;
+        return Some(shell_command(shell, process.exe()));
+    }
+    None
+}
+
+/// Map a lowercased process image stem to a spawnable shell name.
+#[cfg(windows)]
+fn known_shell(stem: &str) -> Option<&'static str> {
+    match stem {
+        "pwsh" => Some("pwsh"),
+        "powershell" => Some("powershell"),
+        "cmd" => Some("cmd"),
+        "bash" => Some("bash"),
+        "zsh" => Some("zsh"),
+        "fish" => Some("fish"),
+        "nu" => Some("nu"),
+        _ => None,
+    }
+}
+
+/// Prefer the parent's full executable path (needed for Git Bash/MSYS shells),
+/// falling back to the plain name for shells resolved from `PATH`.
+#[cfg(windows)]
+fn shell_command(name: &str, exe: Option<&Path>) -> String {
+    match exe {
+        Some(path) if path.is_file() => path.to_string_lossy().into_owned(),
+        _ => name.to_string(),
+    }
+}
+
+/// `$SHELL` if it points at an existing absolute Windows path (Git Bash, MSYS).
+#[cfg(windows)]
+fn env_shell() -> Option<String> {
+    let shell = std::env::var("SHELL").ok().filter(|s| !s.is_empty())?;
+    let path = Path::new(&shell);
+    (path.is_absolute() && path.is_file()).then_some(shell)
+}
+
+#[cfg(windows)]
+fn default_windows_shell() -> String {
+    if command_exists("pwsh") {
+        "pwsh".to_string()
+    } else if command_exists("powershell") {
+        "powershell".to_string()
+    } else {
+        std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string())
+    }
 }
 
 /// Startup file where `recall init` should be added for the given shell.
@@ -51,6 +124,7 @@ pub fn shell_rc_path(shell: &str) -> Option<PathBuf> {
         home.as_deref(),
         zdotdir.as_deref(),
         config_dir.as_deref(),
+        dirs::document_dir().as_deref(),
     )
 }
 
@@ -59,11 +133,22 @@ fn rc_path_for(
     home: Option<&Path>,
     zdotdir: Option<&Path>,
     config_dir: Option<&Path>,
+    document_dir: Option<&Path>,
 ) -> Option<PathBuf> {
     match shell {
         "zsh" => Some(zdotdir.or(home)?.join(".zshrc")),
         "bash" => Some(home?.join(".bashrc")),
         "fish" => Some(config_dir?.join("fish").join("config.fish")),
+        "pwsh" => Some(
+            document_dir?
+                .join("PowerShell")
+                .join("Microsoft.PowerShell_profile.ps1"),
+        ),
+        "powershell" => Some(
+            document_dir?
+                .join("WindowsPowerShell")
+                .join("Microsoft.PowerShell_profile.ps1"),
+        ),
         _ => None,
     }
 }
@@ -130,23 +215,54 @@ mod tests {
     fn resolves_rc_paths_per_shell() {
         let home = Path::new("/home/u");
         let config = Path::new("/home/u/.config");
+        let documents = Path::new("C:/Users/u/Documents");
 
         assert_eq!(
-            rc_path_for("zsh", Some(home), None, Some(config)).unwrap(),
+            rc_path_for("zsh", Some(home), None, Some(config), None).unwrap(),
             home.join(".zshrc")
         );
         assert_eq!(
-            rc_path_for("zsh", Some(home), Some(Path::new("/zdot")), Some(config)).unwrap(),
+            rc_path_for(
+                "zsh",
+                Some(home),
+                Some(Path::new("/zdot")),
+                Some(config),
+                None
+            )
+            .unwrap(),
             Path::new("/zdot/.zshrc")
         );
         assert_eq!(
-            rc_path_for("bash", Some(home), None, Some(config)).unwrap(),
+            rc_path_for("bash", Some(home), None, Some(config), None).unwrap(),
             home.join(".bashrc")
         );
         assert_eq!(
-            rc_path_for("fish", Some(home), None, Some(config)).unwrap(),
+            rc_path_for("fish", Some(home), None, Some(config), None).unwrap(),
             config.join("fish").join("config.fish")
         );
-        assert!(rc_path_for("nu", Some(home), None, Some(config)).is_none());
+        assert_eq!(
+            rc_path_for("pwsh", None, None, None, Some(documents)).unwrap(),
+            documents
+                .join("PowerShell")
+                .join("Microsoft.PowerShell_profile.ps1")
+        );
+        assert_eq!(
+            rc_path_for("powershell", None, None, None, Some(documents)).unwrap(),
+            documents
+                .join("WindowsPowerShell")
+                .join("Microsoft.PowerShell_profile.ps1")
+        );
+        assert!(rc_path_for("nu", Some(home), None, Some(config), None).is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn maps_known_shell_process_names() {
+        assert_eq!(known_shell("pwsh"), Some("pwsh"));
+        assert_eq!(known_shell("powershell"), Some("powershell"));
+        assert_eq!(known_shell("cmd"), Some("cmd"));
+        assert_eq!(known_shell("bash"), Some("bash"));
+        assert_eq!(known_shell("explorer"), None);
+        assert_eq!(known_shell("recall"), None);
     }
 }

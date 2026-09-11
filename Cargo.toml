@@ -28,3 +28,6 @@ zstd = "0.14.0"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.182"
 signal-hook = "0.4.4"
+
+[target."cfg(windows)".dependencies]
+sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
