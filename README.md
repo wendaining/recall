@@ -127,11 +127,13 @@ Open the TUI with `recall` (or the Alt+R widget):
 | `Tab` | edit selected command (insert into the prompt) |
 | `Ctrl+Enter` | execute selected command |
 | `Ctrl+E` | execute (fallback for terminals that don't report Ctrl+Enter distinctly) |
+| `Ctrl+T` | toggle the current block's selection |
 | `Ctrl+Y` / `y` | copy command |
-| `Ctrl+O` / `Y` | copy output |
+| `Ctrl+O` | copy selected commands and outputs chronologically; copy current output if none are selected |
+| `Y` | copy current output |
 | `PgUp` / `PgDn`, `Home` / `End` | scroll output |
 | `Esc` | clear search / leave detail |
-| `q` / `Ctrl+C` | quit |
+| `Ctrl+C` | quit |
 | `F1` | toggle help |
 
 > `Tab` and `Ctrl+Enter` need the shell widget (`recall search --cmd-only`).

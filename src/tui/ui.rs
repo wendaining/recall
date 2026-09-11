@@ -59,7 +59,11 @@ fn draw_search(frame: &mut Frame, app: &App, area: Rect) {
 
 fn draw_list(frame: &mut Frame, app: &mut App, area: Rect) {
     let focused = app.focus == Focus::Detail;
-    let title = format!(" blocks ({}) ", app.results.len());
+    let title = format!(
+        " blocks ({} · {} selected) ",
+        app.results.len(),
+        app.selected_ids.len()
+    );
     let block = Block::bordered()
         .title(title)
         .border_style(border_style(!focused));
@@ -67,7 +71,13 @@ fn draw_list(frame: &mut Frame, app: &mut App, area: Rect) {
     let items: Vec<ListItem> = app
         .results
         .iter()
-        .map(|entry| ListItem::new(block_lines(entry, &app.config)))
+        .map(|entry| {
+            ListItem::new(block_lines(
+                entry,
+                &app.config,
+                app.selected_ids.contains(&entry.id),
+            ))
+        })
         .collect();
 
     let list = List::new(items)
@@ -83,7 +93,11 @@ fn draw_list(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_stateful_widget(list, area, &mut app.list_state);
 }
 
-fn block_lines(block: &RecallBlock, config: &crate::config::Config) -> Text<'static> {
+fn block_lines(
+    block: &RecallBlock,
+    config: &crate::config::Config,
+    selected: bool,
+) -> Text<'static> {
     let mut lines = Vec::new();
     lines.push(Line::from(Span::styled(
         "─".repeat(200),
@@ -91,6 +105,12 @@ fn block_lines(block: &RecallBlock, config: &crate::config::Config) -> Text<'sta
     )));
     lines.push(header_line(block, config));
     lines.push(Line::from(vec![
+        Span::styled(
+            if selected { "✓ " } else { "  " },
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled("$ ", Style::default().fg(Color::Green)),
         Span::styled(
             first_line(&block.command),
@@ -216,8 +236,9 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
 
 fn default_hint(app: &App) -> String {
     format!(
-        "{} results · ↑/↓ move/scroll · Enter focus · Tab edit · Ctrl+Enter/Ctrl+E run · Ctrl+Y copy cmd · Ctrl+O copy output · q quit · F1 help",
-        app.results.len()
+        "{} results · {} selected · ↑/↓ move/scroll · Ctrl+T toggle · Ctrl+O copy · Ctrl+C quit · F1 help",
+        app.results.len(),
+        app.selected_ids.len()
     )
 }
 
@@ -238,10 +259,12 @@ fn draw_help(frame: &mut Frame) {
         Line::raw("Ctrl+Enter      execute selected command"),
         Line::raw("Ctrl+E          execute (fallback for terminals without"),
         Line::raw("                the kitty keyboard protocol)"),
+        Line::raw("Ctrl+T          toggle current block selection"),
         Line::raw("Ctrl+Y          copy command"),
-        Line::raw("Ctrl+O          copy output"),
+        Line::raw("Ctrl+O          copy selected command + output transcript"),
+        Line::raw("                (current output when none selected)"),
         Line::raw("Esc             clear search / leave detail"),
-        Line::raw("q / Ctrl+C      quit"),
+        Line::raw("Ctrl+C          quit"),
         Line::raw("F1              toggle this help"),
     ];
     let paragraph = Paragraph::new(text)

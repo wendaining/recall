@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -31,6 +33,7 @@ pub struct App {
     pub query: String,
     pub results: Vec<Block>,
     pub selected: usize,
+    pub selected_ids: HashSet<String>,
     pub list_state: ratatui::widgets::ListState,
     pub detail: Option<Block>,
     pub detail_scroll: u16,
@@ -63,6 +66,7 @@ impl App {
             query: initial_query.unwrap_or_default(),
             results: Vec::new(),
             selected: 0,
+            selected_ids: HashSet::new(),
             list_state: ratatui::widgets::ListState::default(),
             detail: None,
             detail_scroll: 0,
@@ -132,8 +136,16 @@ impl App {
                 self.copy_command();
                 return;
             }
+            KeyCode::Char('t') if ctrl => {
+                self.toggle_selected();
+                return;
+            }
             KeyCode::Char('o') if ctrl => {
-                self.copy_output();
+                if self.selected_ids.is_empty() {
+                    self.copy_output();
+                } else {
+                    self.copy_selected_transcript();
+                }
                 return;
             }
             KeyCode::Char('e') if ctrl => {
@@ -208,7 +220,7 @@ impl App {
             KeyCode::End => self.detail_scroll = u16::MAX,
             KeyCode::Char('y') => self.copy_command(),
             KeyCode::Char('Y') => self.copy_output(),
-            KeyCode::Char('q') | KeyCode::Esc => self.focus = Focus::Search,
+            KeyCode::Esc => self.focus = Focus::Search,
             _ => {}
         }
     }
@@ -255,6 +267,50 @@ impl App {
         }
     }
 
+    fn toggle_selected(&mut self) {
+        let Some(id) = self
+            .results
+            .get(self.selected)
+            .map(|block| block.id.clone())
+        else {
+            return;
+        };
+        if !self.selected_ids.remove(&id) {
+            self.selected_ids.insert(id);
+        }
+        self.set_status(format!("{} blocks selected", self.selected_ids.len()));
+    }
+
+    fn copy_selected_transcript(&mut self) {
+        match self.selected_blocks() {
+            Ok(blocks) if !blocks.is_empty() => {
+                let count = blocks.len();
+                let transcript = format_transcript(&blocks);
+                self.copy_text(&transcript, &format!("{count} blocks"));
+            }
+            Ok(_) => self.set_error("no selected blocks to copy".to_string()),
+            Err(err) => self.set_error(format!("loading selected blocks failed: {err}")),
+        }
+    }
+
+    fn selected_blocks(&self) -> Result<Vec<Block>> {
+        let mut blocks = self
+            .selected_ids
+            .iter()
+            .map(|id| queries::get(&self.db.conn, id))
+            .collect::<Result<Vec<_>>>()?
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+        blocks.sort_by(|a, b| {
+            a.started_at
+                .cmp(&b.started_at)
+                .then_with(|| a.created_at.cmp(&b.created_at))
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        Ok(blocks)
+    }
+
     fn copy_text(&mut self, text: &str, label: &str) {
         let backend = self.clipboard.name();
         match self.clipboard.copy(text) {
@@ -271,5 +327,120 @@ impl App {
     pub fn set_error(&mut self, message: String) {
         self.status = Some(message);
         self.status_is_error = true;
+    }
+}
+
+fn format_transcript(blocks: &[Block]) -> String {
+    blocks
+        .iter()
+        .map(|block| {
+            let mut section = format!("$ {}", block.command);
+            if let Some(output) = block.output.as_deref().filter(|output| !output.is_empty()) {
+                section.push('\n');
+                section.push_str(&String::from_utf8_lossy(output));
+            }
+            section
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use super::*;
+    use crate::model::BlockKind;
+
+    struct TestClipboard {
+        copied: Arc<Mutex<Option<String>>>,
+    }
+
+    impl Clipboard for TestClipboard {
+        fn copy(&self, text: &str) -> Result<()> {
+            *self.copied.lock().unwrap() = Some(text.to_string());
+            Ok(())
+        }
+
+        fn name(&self) -> &'static str {
+            "test"
+        }
+    }
+
+    fn block(id: &str, command: &str, output: &str, started_at: i64) -> Block {
+        Block {
+            id: id.to_string(),
+            command: command.to_string(),
+            started_at,
+            output: Some(output.as_bytes().to_vec()),
+            output_bytes: output.len() as i64,
+            output_lines: output.lines().count() as i64,
+            kind: BlockKind::Normal,
+            created_at: started_at,
+            ..Block::default()
+        }
+    }
+
+    fn test_app(blocks: &[Block]) -> (App, Arc<Mutex<Option<String>>>) {
+        let db = Db::open_in_memory().unwrap();
+        for block in blocks {
+            queries::insert(&db.conn, block).unwrap();
+        }
+        let copied = Arc::new(Mutex::new(None));
+        let clipboard = TestClipboard {
+            copied: copied.clone(),
+        };
+        let mut app = App {
+            db,
+            config: Config::default(),
+            clipboard: Box::new(clipboard),
+            query: String::new(),
+            results: Vec::new(),
+            selected: 0,
+            selected_ids: HashSet::new(),
+            list_state: ratatui::widgets::ListState::default(),
+            detail: None,
+            detail_scroll: 0,
+            focus: Focus::Search,
+            cmd_only: false,
+            selected_command: None,
+            action: Action::Edit,
+            status: None,
+            status_is_error: false,
+            should_quit: false,
+            show_help: false,
+        };
+        app.refresh();
+        (app, copied)
+    }
+
+    #[test]
+    fn ctrl_o_copies_selected_blocks_in_chronological_order() {
+        let blocks = [
+            block("old", "first command", "first output", 100),
+            block("new", "second command", "second output", 200),
+        ];
+        let (mut app, copied) = test_app(&blocks);
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL));
+        app.move_selection(1);
+        app.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL));
+        app.handle_key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL));
+
+        assert_eq!(
+            copied.lock().unwrap().as_deref(),
+            Some("$ first command\nfirst output\n\n$ second command\nsecond output")
+        );
+    }
+
+    #[test]
+    fn q_does_not_leave_detail_or_quit() {
+        let (mut app, _) = test_app(&[block("one", "command", "output", 100)]);
+        app.focus = Focus::Detail;
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+
+        assert_eq!(app.focus, Focus::Detail);
+        assert!(!app.should_quit);
     }
 }
