@@ -74,6 +74,10 @@ pub struct Ui {
     pub search_key: String,
     /// Number of output lines shown per block in the list pane.
     pub preview_lines: usize,
+    /// Initial width of the list pane as a percentage of the window. The TUI
+    /// lets the user adjust this interactively; adjustments are persisted in
+    /// the database and override this default on later runs.
+    pub list_width_pct: u16,
     /// strftime format used for absolute timestamps.
     pub date_format: String,
 }
@@ -126,6 +130,7 @@ impl Default for Ui {
         Self {
             search_key: "alt-r".to_string(),
             preview_lines: 4,
+            list_width_pct: 42,
             date_format: "%Y-%m-%d %H:%M:%S".to_string(),
         }
     }
@@ -195,6 +200,19 @@ mod tests {
     #[test]
     fn login_shell_default_matches_platform() {
         assert_eq!(Proxy::default().login_shell, cfg!(target_os = "macos"));
+    }
+
+    #[test]
+    fn default_list_width() {
+        assert_eq!(Ui::default().list_width_pct, 42);
+        let config: Config = toml::from_str(
+            r#"
+            [ui]
+            list_width_pct = 60
+            "#,
+        )
+        .unwrap();
+        assert_eq!(config.ui.list_width_pct, 60);
     }
 
     #[test]
