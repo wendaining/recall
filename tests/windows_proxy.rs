@@ -70,9 +70,9 @@ fn conpty_forwards_special_keys_and_exits_cleanly() {
     write_input(&writer, b"Write-Output ('__RECALL_CONPTY_' + 'KEY__')\r");
     require_occurrences(&output, "__RECALL_CONPTY_KEY__", 1, &mut child);
 
-    // Up Arrow is delivered as VT input. PSReadLine should recall and execute
-    // the previous command, proving non-text keys survive both ConPTY layers.
-    write_input(&writer, b"\x1b[A\r");
+    // PowerShell enables win32-input-mode through the proxied output, so a
+    // terminal encodes Up Arrow as key-down/up INPUT_RECORD sequences.
+    write_input(&writer, b"\x1b[38;72;0;1;256;1_\x1b[38;72;0;0;256;1_\r");
     require_occurrences(&output, "__RECALL_CONPTY_KEY__", 2, &mut child);
 
     write_input(&writer, b"exit\r");
