@@ -56,6 +56,16 @@ install -Dm755 target/release/recall ~/.local/bin/recall      # Linux/macOS
 
 Windows 上二进制为 `target\release\recall.exe`，把它复制到 `PATH` 中的目录即可。
 
+### 更新
+
+```sh
+recall update
+```
+
+`recall update` 会下载当前平台的最新稳定版 GitHub Release，展示下载进度、校验
+SHA-256，然后替换正在运行的二进制。使用 `recall update --check` 仅检查更新。
+历史 TUI 每 24 小时最多检查一次稳定版更新，并在状态栏显示更新提示。
+
 ### 卸载
 
 ```sh

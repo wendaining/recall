@@ -2,6 +2,7 @@ mod app;
 mod ui;
 
 use std::io;
+use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::Duration;
 
 use anyhow::Result;
@@ -31,11 +32,19 @@ type Backend = CrosstermBackend<io::Stderr>;
 ///
 /// Returns an exit code: 0 for a normal edit selection, 2 when the user asked
 /// to rerun the command.
-pub fn run(args: SearchArgs, config: Config) -> Result<i32> {
+pub fn run(
+    args: SearchArgs,
+    config: Config,
+    update_notice: Option<String>,
+    update_result: Receiver<Option<String>>,
+) -> Result<i32> {
     let mut app = App::new(config, args.cmd_only, args.query)?;
+    if let Some(notice) = update_notice {
+        app.set_status(notice);
+    }
 
     let mut guard = TerminalGuard::enter()?;
-    let result = event_loop(guard.terminal(), &mut app);
+    let result = event_loop(guard.terminal(), &mut app, update_result);
     guard.leave();
 
     result?;
@@ -52,13 +61,25 @@ pub fn run(args: SearchArgs, config: Config) -> Result<i32> {
     Ok(code)
 }
 
-fn event_loop(terminal: &mut Terminal<Backend>, app: &mut App) -> Result<()> {
+fn event_loop(
+    terminal: &mut Terminal<Backend>,
+    app: &mut App,
+    update_result: Receiver<Option<String>>,
+) -> Result<()> {
+    let mut update_result = Some(update_result);
     loop {
         terminal.draw(|frame| ui::draw(frame, app))?;
         if event::poll(Duration::from_millis(200))? {
             match event::read()? {
                 Event::Key(key) if key.kind == KeyEventKind::Press => app.handle_key(key),
                 _ => {}
+            }
+        }
+        if let Some(receiver) = &update_result {
+            match receiver.try_recv() {
+                Ok(Some(notice)) => app.set_status(notice),
+                Ok(None) | Err(TryRecvError::Disconnected) => update_result = None,
+                Err(TryRecvError::Empty) => {}
             }
         }
         if app.should_quit {

@@ -26,6 +26,8 @@ pub enum Command {
     Doctor,
     /// Drop stored output older than the retention window.
     Prune,
+    /// Download and install the latest stable release.
+    Update(UpdateArgs),
     /// Show or locate the configuration file.
     Config(ConfigArgs),
     /// Print a fresh recall id.
@@ -123,6 +125,13 @@ pub enum ImportSource {
 pub struct ConfigArgs {
     #[command(subcommand)]
     pub action: ConfigAction,
+}
+
+#[derive(Debug, Args)]
+pub struct UpdateArgs {
+    /// Check for an update without downloading it.
+    #[arg(long)]
+    pub check: bool,
 }
 
 #[derive(Debug, Subcommand)]

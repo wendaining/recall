@@ -4,6 +4,7 @@ mod init;
 mod proxy;
 mod record;
 mod shell;
+mod update;
 
 use anyhow::Result;
 
@@ -26,6 +27,7 @@ pub fn run(cli: Cli) -> Result<()> {
         Some(Command::Import(args)) => import::run(args),
         Some(Command::Doctor) => doctor::run(),
         Some(Command::Prune) => prune(),
+        Some(Command::Update(args)) => update::run(args),
         Some(Command::Config(args)) => config(args),
         Some(Command::Uuid) => {
             println!("{}", new_id());
@@ -69,7 +71,13 @@ fn prune() -> Result<()> {
 
 fn search(args: SearchArgs) -> Result<()> {
     let config = Config::load()?;
-    let code = crate::tui::run(args, config)?;
+    let update_check = update::startup_check();
+    let code = crate::tui::run(
+        args,
+        config,
+        update_check.initial_notice,
+        update_check.refreshed_notice,
+    )?;
     if code != 0 {
         std::process::exit(code);
     }
