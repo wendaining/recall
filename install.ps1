@@ -101,7 +101,7 @@ try {
     }
 
     if (-not $env:RECALL_NO_MODIFY_PROFILE) {
-        $profilePath = $PROFILE.CurrentUserAllHosts
+        $profilePath = $PROFILE.CurrentUserCurrentHost
         $profileDir = Split-Path -Parent $profilePath
         if ($profileDir) { New-Item -ItemType Directory -Path $profileDir -Force | Out-Null }
         if (-not (Test-Path $profilePath)) { New-Item -ItemType File -Path $profilePath -Force | Out-Null }
