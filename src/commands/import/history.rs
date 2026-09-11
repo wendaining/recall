@@ -88,18 +88,38 @@ fn parse(format: HistoryFormat, text: &str) -> Vec<HistoryEntry> {
 
 fn parse_bash(text: &str) -> Vec<HistoryEntry> {
     let mut entries = Vec::new();
-    let mut timestamp = None;
+    let mut current: Option<HistoryEntry> = None;
+    let has_timestamps = text
+        .lines()
+        .map(trim_cr)
+        .any(|line| line.strip_prefix('#').and_then(parse_seconds).is_some());
+    if !has_timestamps {
+        return text
+            .lines()
+            .map(trim_cr)
+            .filter(|line| !line.is_empty())
+            .map(plain_entry)
+            .collect();
+    }
+
     for line in text.lines().map(trim_cr) {
         if let Some(seconds) = line.strip_prefix('#').and_then(parse_seconds) {
-            timestamp = Some(seconds);
-        } else if !line.is_empty() {
-            entries.push(HistoryEntry {
-                command: line.to_string(),
-                started_at: timestamp.take(),
+            push_nonempty(&mut entries, current.take());
+            current = Some(HistoryEntry {
+                command: String::new(),
+                started_at: Some(seconds),
                 duration_ns: None,
             });
+        } else if let Some(entry) = current.as_mut() {
+            if !entry.command.is_empty() {
+                entry.command.push('\n');
+            }
+            entry.command.push_str(line);
+        } else if !line.is_empty() {
+            entries.push(plain_entry(line));
         }
     }
+    push_nonempty(&mut entries, current);
     entries
 }
 
@@ -167,11 +187,11 @@ fn parse_powershell(text: &str) -> Vec<HistoryEntry> {
         if command.is_empty() && line.is_empty() {
             continue;
         }
-        if !command.is_empty() {
+        if let Some(continued) = line.strip_suffix('`') {
+            command.push_str(continued);
             command.push('\n');
-        }
-        command.push_str(line);
-        if !line.ends_with('`') {
+        } else {
+            command.push_str(line);
             entries.push(HistoryEntry {
                 command: std::mem::take(&mut command),
                 started_at: None,
@@ -187,6 +207,14 @@ fn parse_powershell(text: &str) -> Vec<HistoryEntry> {
         });
     }
     entries
+}
+
+fn push_nonempty(entries: &mut Vec<HistoryEntry>, entry: Option<HistoryEntry>) {
+    if let Some(entry) = entry
+        && !entry.command.is_empty()
+    {
+        entries.push(entry);
+    }
 }
 
 fn plain_entry(command: &str) -> HistoryEntry {
@@ -276,16 +304,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_bash_timestamps_and_plain_entries() {
+    fn uses_bash_timestamps_as_multiline_delimiters() {
         assert_eq!(
-            parse_bash("#1700000000\necho one\nprintf two\n"),
+            parse_bash(
+                "plain prefix\n#1700000000\nfor item in one two\ndo\n  echo $item\ndone\n#1700000001\nprintf done\n"
+            ),
             vec![
+                plain_entry("plain prefix"),
                 HistoryEntry {
-                    command: "echo one".to_string(),
+                    command: "for item in one two\ndo\n  echo $item\ndone".to_string(),
                     started_at: Some(1_700_000_000_000_000_000),
                     duration_ns: None,
                 },
-                plain_entry("printf two"),
+                HistoryEntry {
+                    command: "printf done".to_string(),
+                    started_at: Some(1_700_000_001_000_000_000),
+                    duration_ns: None,
+                },
             ]
         );
     }
@@ -325,7 +360,7 @@ mod tests {
         assert_eq!(
             parse_powershell("Write-Output `\r\n  hello\r\nGet-Location\r\n"),
             vec![
-                plain_entry("Write-Output `\n  hello"),
+                plain_entry("Write-Output \n  hello"),
                 plain_entry("Get-Location"),
             ]
         );
