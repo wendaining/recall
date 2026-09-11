@@ -513,6 +513,39 @@ mod tests {
     }
 
     #[test]
+    fn retries_an_actual_sqlite_write_lock() {
+        let db_path = temp_db_path();
+        let db = Db::open(&db_path).unwrap();
+        db.conn.busy_timeout(Duration::from_millis(1)).unwrap();
+        let blocker = rusqlite::Connection::open(&db_path).unwrap();
+        blocker.execute_batch("BEGIN IMMEDIATE").unwrap();
+        let block = Block {
+            id: "block-locked".to_string(),
+            command: "echo recovered".to_string(),
+            started_at: 1,
+            kind: BlockKind::Empty,
+            created_at: 1,
+            ..Default::default()
+        };
+        let mut waits = 0;
+
+        retry_on_busy(
+            || queries::insert(&db.conn, &block),
+            |_| {
+                waits += 1;
+                blocker.execute_batch("COMMIT").unwrap();
+            },
+        )
+        .unwrap();
+
+        assert_eq!(waits, 1);
+        assert_eq!(queries::count(&db.conn).unwrap(), 1);
+        drop(blocker);
+        drop(db);
+        std::fs::remove_dir_all(db_path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
     fn writer_errors_are_logged_with_the_full_cause_chain() {
         let db_path = temp_db_path();
         let err = Err::<(), _>(anyhow::anyhow!("database is locked"))
