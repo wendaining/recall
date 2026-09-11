@@ -257,13 +257,24 @@ fn replace_binary(replacement: &Path, executable: &Path) -> Result<()> {
 
 #[cfg(windows)]
 fn replace_binary(replacement: &Path, executable: &Path) -> Result<()> {
-    let pending = executable.with_extension("exe.new");
+    let pending = executable.with_extension("exe.recall-new");
     fs::rename(replacement, &pending)?;
-    bail!(
-        "downloaded update to {}; exit recall, then replace {} with it",
-        pending.display(),
-        executable.display()
-    )
+    let script = std::env::temp_dir().join(format!("recall-update-{}.cmd", std::process::id()));
+    let pid = std::process::id();
+    fs::write(
+        &script,
+        format!(
+            "@echo off\r\n:wait\r\ntasklist /FI \"PID eq {pid}\" /NH | find \"{pid}\" >nul\r\nif not errorlevel 1 (\r\n  timeout /t 1 /nobreak >nul\r\n  goto wait\r\n)\r\nmove /Y \"{}\" \"{}\" >nul\r\ndel \"%~f0\"\r\n",
+            pending.display(),
+            executable.display()
+        ),
+    )?;
+    std::process::Command::new("cmd")
+        .args(["/C", &script.to_string_lossy()])
+        .spawn()
+        .context("starting the Windows update helper")?;
+    println!("updated recall; restart the terminal to use the new version");
+    Ok(())
 }
 
 fn checksum_for(text: &str, archive: &str) -> Result<String> {
