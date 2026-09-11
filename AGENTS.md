@@ -59,6 +59,27 @@ Windows the parent process chain (via `sysinfo`), then `pwsh`, `powershell`,
 `%COMSPEC%`. Windows-only dependencies live under
 `[target.'cfg(windows)'.dependencies]` (`sysinfo`, `windows-sys`).
 
+### Platform boundary
+
+Keep platform-neutral behavior out of OS-specific modules. The expected
+coupling points are:
+
+- `src/platform/{unix,windows}.rs`: PTY raw mode, login-shell arguments, input
+  mode, terminal sizing, resize delivery, and pseudoconsole behavior.
+- `src/util.rs`: login-shell discovery and executable lookup.
+- `src/commands/shell.rs`: replacing the current process on Unix versus waiting
+  for a spawned shell elsewhere.
+- `src/tui/mod.rs`: terminal keyboard-protocol support.
+- `src/clipboard/mod.rs`: platform clipboard backends.
+- `src/shell.rs`: the table of supported shells, startup files, init scripts,
+  and key encodings. Add shell-specific behavior to this table rather than
+  branching in commands.
+
+Changes to these boundaries require regression coverage on Linux, macOS, and
+Windows. Run the full CI matrix; PTY input or teardown changes must also keep
+`tests/windows_proxy.rs` passing so special-key forwarding and clean ConPTY exit
+remain covered end to end.
+
 ### Capture flow
 
 1. `recall shell` -> `capture::proxy::run` opens a PTY and spawns the shell with
