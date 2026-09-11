@@ -38,6 +38,8 @@ pub struct Proxy {
     pub shell: String,
     /// Commands matching any of these regexes are not recorded.
     pub exclude: Vec<String>,
+    /// Commands matching any of these regexes are recorded without output.
+    pub exclude_output: Vec<String>,
     /// Mark alt-screen programs as `interactive` and skip their output.
     pub mark_interactive: bool,
     /// Enable the secrets filter.
@@ -88,6 +90,7 @@ impl Default for Proxy {
         Self {
             shell: String::new(),
             exclude: vec![r"^\s*recall\b".to_string(), r"^\s*atuin\b".to_string()],
+            exclude_output: Vec::new(),
             mark_interactive: true,
             secrets_filter: true,
         }
@@ -160,4 +163,25 @@ pub fn default_atuin_db_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
         .join("atuin")
         .join("history.db")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_exclude_output_patterns() {
+        let config: Config = toml::from_str(
+            r#"
+            [proxy]
+            exclude_output = ["^docker logs", "^tail -f"]
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.proxy.exclude_output,
+            ["^docker logs".to_string(), "^tail -f".to_string()]
+        );
+    }
 }

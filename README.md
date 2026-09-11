@@ -159,6 +159,7 @@ max_output_bytes = 1048576   # per-command output cap (before compression)
 strip_ansi = true
 
 [proxy]
+exclude_output = ["^docker logs", "^ffmpeg", "^tail -f"] # keep metadata, skip output
 mark_interactive = true      # skip output of full-screen programs
 secrets_filter = true
 

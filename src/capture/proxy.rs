@@ -29,11 +29,15 @@ struct Active {
     truncated: bool,
     total: usize,
     max: usize,
+    exclude_output: bool,
 }
 
 impl Active {
     fn push(&mut self, data: &[u8]) {
         self.total += data.len();
+        if self.exclude_output {
+            return;
+        }
         if self.buffer.len() < self.max {
             let room = self.max - self.buffer.len();
             let take = data.len().min(room);
@@ -60,6 +64,7 @@ struct Shared {
     shell: String,
     hostname: Option<String>,
     exclude: regex::RegexSet,
+    exclude_output: regex::RegexSet,
     tx: Sender<Block>,
     pending: AtomicUsize,
 }
@@ -85,6 +90,7 @@ pub fn run(config: Arc<Config>, shell: String) -> Result<i32> {
         shell: shell_name,
         hostname: util::resolved_hostname(&config),
         exclude: build_exclude(&config.proxy.exclude),
+        exclude_output: build_exclude(&config.proxy.exclude_output),
         tx,
         pending: AtomicUsize::new(0),
     });
@@ -184,6 +190,7 @@ fn apply_event(shared: &Arc<Shared>, event: Request) {
             started_at,
         } => {
             if !shared.exclude.is_match(&command) {
+                let exclude_output = shared.exclude_output.is_match(&command);
                 let mut state = shared.state.lock().unwrap();
                 state.active = Some(Active {
                     id,
@@ -195,6 +202,7 @@ fn apply_event(shared: &Arc<Shared>, event: Request) {
                     truncated: false,
                     total: 0,
                     max: shared.config.general.max_output_bytes,
+                    exclude_output,
                 });
             }
         }
@@ -229,16 +237,27 @@ fn finalize(
     duration_ns: Option<i64>,
     shared: &Arc<Shared>,
 ) -> Block {
-    let interactive = classifier::detect_interactive(&active.buffer);
-    let mut classified = classifier::classify(ClassifyInput {
-        raw: &active.buffer,
-        interactive,
-        max_output_bytes: shared.config.general.max_output_bytes,
-        strip_ansi: shared.config.general.strip_ansi,
-        mark_interactive: shared.config.proxy.mark_interactive,
-    });
+    let mut classified = if active.exclude_output {
+        classifier::Classified {
+            kind: BlockKind::OutputExcluded,
+            output: None,
+            truncated: false,
+        }
+    } else {
+        let interactive = classifier::detect_interactive(&active.buffer);
+        classifier::classify(ClassifyInput {
+            raw: &active.buffer,
+            interactive,
+            max_output_bytes: shared.config.general.max_output_bytes,
+            strip_ansi: shared.config.general.strip_ansi,
+            mark_interactive: shared.config.proxy.mark_interactive,
+        })
+    };
 
-    if shared.config.proxy.secrets_filter && looks_secret(&active.command, &classified.output) {
+    if !active.exclude_output
+        && shared.config.proxy.secrets_filter
+        && looks_secret(&active.command, &classified.output)
+    {
         classified = classifier::Classified {
             kind: BlockKind::Filtered,
             output: None,
@@ -452,6 +471,62 @@ mod tests {
     use std::os::fd::{AsRawFd, FromRawFd};
 
     use super::*;
+
+    #[test]
+    fn excluded_output_keeps_metadata_without_buffering() {
+        let mut config = Config::default();
+        config.proxy.exclude_output = vec![r"^tail -f".to_string()];
+        let (tx, rx) = mpsc::channel();
+        let shared = Arc::new(Shared {
+            state: Mutex::new(CaptureState::default()),
+            config: Arc::new(config.clone()),
+            session: "session-1".to_string(),
+            shell: "zsh".to_string(),
+            hostname: Some("host-1".to_string()),
+            exclude: build_exclude(&config.proxy.exclude),
+            exclude_output: build_exclude(&config.proxy.exclude_output),
+            tx,
+            pending: AtomicUsize::new(0),
+        });
+
+        apply_event(
+            &shared,
+            Request::Start {
+                id: "block-1".to_string(),
+                command: "tail -f app.log".to_string(),
+                cwd: Some("/tmp".to_string()),
+                atuin_id: None,
+                started_at: Some(123),
+            },
+        );
+        capture(&shared, b"a large stream of output\n");
+
+        let state = shared.state.lock().unwrap();
+        let active = state.active.as_ref().unwrap();
+        assert!(active.buffer.is_empty());
+        assert_eq!(active.total, 25);
+        drop(state);
+
+        apply_event(
+            &shared,
+            Request::End {
+                id: "block-1".to_string(),
+                exit: Some(0),
+                duration_ns: Some(456),
+            },
+        );
+        let block = rx.recv().unwrap();
+
+        assert_eq!(block.command, "tail -f app.log");
+        assert_eq!(block.cwd.as_deref(), Some("/tmp"));
+        assert_eq!(block.started_at, 123);
+        assert_eq!(block.duration_ns, Some(456));
+        assert_eq!(block.exit_code, Some(0));
+        assert_eq!(block.output_bytes, 25);
+        assert!(block.output.is_none());
+        assert!(!block.output_truncated);
+        assert_eq!(block.kind, BlockKind::OutputExcluded);
+    }
 
     #[test]
     fn reads_cell_and_pixel_dimensions_from_pty() {

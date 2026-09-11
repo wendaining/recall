@@ -23,6 +23,8 @@ pub enum BlockKind {
     Unavailable,
     /// Output matched a secret filter and was not stored.
     Filtered,
+    /// Output recording was disabled for this command by configuration.
+    OutputExcluded,
 }
 
 impl BlockKind {
@@ -35,6 +37,7 @@ impl BlockKind {
             BlockKind::Redirected => "redirected",
             BlockKind::Unavailable => "unavailable",
             BlockKind::Filtered => "filtered",
+            BlockKind::OutputExcluded => "output_excluded",
         }
     }
 }
@@ -57,6 +60,7 @@ impl FromStr for BlockKind {
             "redirected" => BlockKind::Redirected,
             "unavailable" => BlockKind::Unavailable,
             "filtered" => BlockKind::Filtered,
+            "output_excluded" => BlockKind::OutputExcluded,
             _ => return Err(()),
         })
     }
