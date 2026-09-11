@@ -141,15 +141,14 @@ impl App {
 
     pub fn handle_key(&mut self, key: KeyEvent) {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-        let alt = key.modifiers.contains(KeyModifiers::ALT);
 
         // Global shortcuts.
         match key.code {
-            KeyCode::Left if alt => {
+            KeyCode::Left => {
                 self.resize_list(-(LIST_WIDTH_STEP as i16));
                 return;
             }
-            KeyCode::Right if alt => {
+            KeyCode::Right => {
                 self.resize_list(LIST_WIDTH_STEP as i16);
                 return;
             }
@@ -245,8 +244,6 @@ impl App {
             KeyCode::End => self.detail_scroll = u16::MAX,
             KeyCode::Char('y') => self.copy_command(),
             KeyCode::Char('Y') => self.copy_output(),
-            KeyCode::Char('[') => self.resize_list(-(LIST_WIDTH_STEP as i16)),
-            KeyCode::Char(']') => self.resize_list(LIST_WIDTH_STEP as i16),
             KeyCode::Esc => self.focus = Focus::Search,
             _ => {}
         }
@@ -480,10 +477,10 @@ mod tests {
     }
 
     #[test]
-    fn alt_arrows_resize_and_persist_list_width() {
+    fn arrows_resize_and_persist_list_width() {
         let (mut app, _) = test_app(&[block("one", "command", "output", 100)]);
 
-        app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::ALT));
+        app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
         assert_eq!(app.list_width_pct, 47);
         assert_eq!(
             queries::get_setting(&app.db.conn, LIST_WIDTH_SETTING)
@@ -492,7 +489,7 @@ mod tests {
             Some("47")
         );
 
-        app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::ALT));
+        app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
         assert_eq!(app.list_width_pct, 42);
     }
 
@@ -501,23 +498,11 @@ mod tests {
         let (mut app, _) = test_app(&[]);
         app.list_width_pct = LIST_WIDTH_MIN;
 
-        app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::ALT));
+        app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
         assert_eq!(app.list_width_pct, LIST_WIDTH_MIN);
 
-        app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::ALT));
+        app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
         assert_eq!(app.list_width_pct, LIST_WIDTH_MIN + LIST_WIDTH_STEP);
-    }
-
-    #[test]
-    fn bracket_keys_resize_in_detail_focus() {
-        let (mut app, _) = test_app(&[]);
-        app.focus = Focus::Detail;
-
-        app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
-        assert_eq!(app.list_width_pct, 47);
-
-        app.handle_key(KeyEvent::new(KeyCode::Char('['), KeyModifiers::NONE));
-        assert_eq!(app.list_width_pct, 42);
     }
 
     #[test]

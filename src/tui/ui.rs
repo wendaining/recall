@@ -246,7 +246,7 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
 
 fn default_hint(app: &App) -> String {
     format!(
-        "{} results · {} selected · ↑/↓ move/scroll · Alt+←/→ resize · Ctrl+T toggle · Ctrl+O copy · Ctrl+C quit · F1 help",
+        "{} results · {} selected · ↑/↓ move/scroll · ←/→ resize · Ctrl+T toggle · Ctrl+O copy · Ctrl+C quit · F1 help",
         app.results.len(),
         app.selected_ids.len()
     )
@@ -263,8 +263,7 @@ fn draw_help(frame: &mut Frame) {
         Line::raw(""),
         Line::raw("type            search command and output"),
         Line::raw("↑/↓             move selection (search) / scroll output (detail)"),
-        Line::raw("Alt+←/→         resize list / detail panes (persisted)"),
-        Line::raw("[ / ]           resize panes in detail focus"),
+        Line::raw("←/→             resize list / detail panes (persisted)"),
         Line::raw("PgUp/PgDn       scroll output"),
         Line::raw("Enter           switch focus (search/detail)"),
         Line::raw("Tab             edit selected command (insert into prompt)"),
