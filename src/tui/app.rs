@@ -11,6 +11,14 @@ use crate::model::Block;
 /// Maximum number of results loaded into the list.
 const RESULT_LIMIT: usize = 2000;
 
+/// Database key under which the user's preferred list pane width is stored.
+const LIST_WIDTH_SETTING: &str = "ui.list_width_pct";
+/// Percentage points the split moves per key press.
+const LIST_WIDTH_STEP: u16 = 5;
+/// Bounds keeping both panes usable.
+const LIST_WIDTH_MIN: u16 = 15;
+const LIST_WIDTH_MAX: u16 = 85;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
     Search,
@@ -37,6 +45,8 @@ pub struct App {
     pub list_state: ratatui::widgets::ListState,
     pub detail: Option<Block>,
     pub detail_scroll: u16,
+    /// Width of the list pane (left) as a percentage of the window.
+    pub list_width_pct: u16,
     pub focus: Focus,
     pub cmd_only: bool,
     /// Command to print after the TUI exits (selection / rerun).
@@ -59,6 +69,11 @@ impl App {
             );
         }
         let clipboard = crate::clipboard::ClipboardChain::detect(&config.clipboard);
+        let list_width_pct = queries::get_setting(&db.conn, LIST_WIDTH_SETTING)
+            .ok()
+            .flatten()
+            .and_then(|value| value.parse::<u16>().ok())
+            .unwrap_or(config.ui.list_width_pct);
         let mut app = Self {
             db,
             config,
@@ -70,6 +85,7 @@ impl App {
             list_state: ratatui::widgets::ListState::default(),
             detail: None,
             detail_scroll: 0,
+            list_width_pct: clamp_list_width(list_width_pct),
             focus: Focus::Search,
             cmd_only,
             selected_command: None,
@@ -125,9 +141,18 @@ impl App {
 
     pub fn handle_key(&mut self, key: KeyEvent) {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let alt = key.modifiers.contains(KeyModifiers::ALT);
 
         // Global shortcuts.
         match key.code {
+            KeyCode::Left if alt => {
+                self.resize_list(-(LIST_WIDTH_STEP as i16));
+                return;
+            }
+            KeyCode::Right if alt => {
+                self.resize_list(LIST_WIDTH_STEP as i16);
+                return;
+            }
             KeyCode::Char('c') if ctrl => {
                 self.should_quit = true;
                 return;
@@ -220,8 +245,24 @@ impl App {
             KeyCode::End => self.detail_scroll = u16::MAX,
             KeyCode::Char('y') => self.copy_command(),
             KeyCode::Char('Y') => self.copy_output(),
+            KeyCode::Char('[') => self.resize_list(-(LIST_WIDTH_STEP as i16)),
+            KeyCode::Char(']') => self.resize_list(LIST_WIDTH_STEP as i16),
             KeyCode::Esc => self.focus = Focus::Search,
             _ => {}
+        }
+    }
+
+    /// Move the split and persist the new width for future runs.
+    fn resize_list(&mut self, delta: i16) {
+        let next = (self.list_width_pct as i16 + delta)
+            .clamp(LIST_WIDTH_MIN as i16, LIST_WIDTH_MAX as i16) as u16;
+        if next == self.list_width_pct {
+            return;
+        }
+        self.list_width_pct = next;
+        match queries::set_setting(&self.db.conn, LIST_WIDTH_SETTING, &next.to_string()) {
+            Ok(()) => self.set_status(format!("list width {next}%")),
+            Err(err) => self.set_error(format!("failed to save layout: {err}")),
         }
     }
 
@@ -330,6 +371,10 @@ impl App {
     }
 }
 
+fn clamp_list_width(pct: u16) -> u16 {
+    pct.clamp(LIST_WIDTH_MIN, LIST_WIDTH_MAX)
+}
+
 fn format_transcript(blocks: &[Block]) -> String {
     blocks
         .iter()
@@ -401,6 +446,7 @@ mod tests {
             list_state: ratatui::widgets::ListState::default(),
             detail: None,
             detail_scroll: 0,
+            list_width_pct: 42,
             focus: Focus::Search,
             cmd_only: false,
             selected_command: None,
@@ -431,6 +477,47 @@ mod tests {
             copied.lock().unwrap().as_deref(),
             Some("$ first command\nfirst output\n\n$ second command\nsecond output")
         );
+    }
+
+    #[test]
+    fn alt_arrows_resize_and_persist_list_width() {
+        let (mut app, _) = test_app(&[block("one", "command", "output", 100)]);
+
+        app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::ALT));
+        assert_eq!(app.list_width_pct, 47);
+        assert_eq!(
+            queries::get_setting(&app.db.conn, LIST_WIDTH_SETTING)
+                .unwrap()
+                .as_deref(),
+            Some("47")
+        );
+
+        app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::ALT));
+        assert_eq!(app.list_width_pct, 42);
+    }
+
+    #[test]
+    fn list_width_is_clamped() {
+        let (mut app, _) = test_app(&[]);
+        app.list_width_pct = LIST_WIDTH_MIN;
+
+        app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::ALT));
+        assert_eq!(app.list_width_pct, LIST_WIDTH_MIN);
+
+        app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::ALT));
+        assert_eq!(app.list_width_pct, LIST_WIDTH_MIN + LIST_WIDTH_STEP);
+    }
+
+    #[test]
+    fn bracket_keys_resize_in_detail_focus() {
+        let (mut app, _) = test_app(&[]);
+        app.focus = Focus::Detail;
+
+        app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
+        assert_eq!(app.list_width_pct, 47);
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('['), KeyModifiers::NONE));
+        assert_eq!(app.list_width_pct, 42);
     }
 
     #[test]
