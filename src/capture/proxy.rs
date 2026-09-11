@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 
 use anyhow::Result;
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
@@ -65,6 +66,13 @@ enum WriterMessage {
     Block(Box<Block>),
     Shutdown,
 }
+
+const WRITE_RETRY_DELAYS: [Duration; 4] = [
+    Duration::from_millis(50),
+    Duration::from_millis(100),
+    Duration::from_millis(250),
+    Duration::from_millis(500),
+];
 
 /// State shared between the byte-forwarding loop and the writer thread.
 struct Shared {
@@ -381,7 +389,7 @@ fn looks_secret(command: &str, output: &Option<Vec<u8>>) -> bool {
 
 fn spawn_writer(rx: Receiver<WriterMessage>, db_path: PathBuf) -> thread::JoinHandle<()> {
     thread::spawn(move || {
-        let db = match Db::open(&db_path) {
+        let db = match retry_on_busy(|| Db::open(&db_path), thread::sleep) {
             Ok(db) => db,
             Err(err) => {
                 util::eprintln_flush(&format!("recall: cannot open database: {err}"));
@@ -391,7 +399,9 @@ fn spawn_writer(rx: Receiver<WriterMessage>, db_path: PathBuf) -> thread::JoinHa
         while let Ok(message) = rx.recv() {
             match message {
                 WriterMessage::Block(block) => {
-                    if let Err(err) = queries::insert(&db.conn, &block) {
+                    if let Err(err) =
+                        retry_on_busy(|| queries::insert(&db.conn, &block), thread::sleep)
+                    {
                         util::eprintln_flush(&format!("recall: insert failed: {err}"));
                     }
                 }
@@ -399,6 +409,30 @@ fn spawn_writer(rx: Receiver<WriterMessage>, db_path: PathBuf) -> thread::JoinHa
             }
         }
     })
+}
+
+fn retry_on_busy<T>(
+    mut operation: impl FnMut() -> Result<T>,
+    mut wait: impl FnMut(Duration),
+) -> Result<T> {
+    for delay in WRITE_RETRY_DELAYS {
+        match operation() {
+            Err(err) if is_busy_or_locked(&err) => wait(delay),
+            result => return result,
+        }
+    }
+    operation()
+}
+
+fn is_busy_or_locked(err: &anyhow::Error) -> bool {
+    err.chain()
+        .filter_map(|cause| cause.downcast_ref::<rusqlite::Error>())
+        .any(|cause| {
+            matches!(
+                cause.sqlite_error_code(),
+                Some(rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked)
+            )
+        })
 }
 
 #[cfg(test)]
@@ -414,6 +448,50 @@ mod tests {
         std::env::temp_dir()
             .join(format!("recall-proxy-{}-{nonce}", std::process::id()))
             .join("recall.db")
+    }
+
+    fn sqlite_busy_error() -> anyhow::Error {
+        rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY), None)
+            .into()
+    }
+
+    #[test]
+    fn retries_busy_operations_with_backoff() {
+        let mut attempts = 0;
+        let mut waits = Vec::new();
+
+        retry_on_busy(
+            || {
+                attempts += 1;
+                if attempts < 3 {
+                    Err(sqlite_busy_error())
+                } else {
+                    Ok(())
+                }
+            },
+            |delay| waits.push(delay),
+        )
+        .unwrap();
+
+        assert_eq!(attempts, 3);
+        assert_eq!(waits, WRITE_RETRY_DELAYS[..2]);
+    }
+
+    #[test]
+    fn does_not_retry_permanent_failures() {
+        let mut attempts = 0;
+
+        let err = retry_on_busy(
+            || {
+                attempts += 1;
+                Err::<(), _>(anyhow::anyhow!("permanent failure"))
+            },
+            |_| panic!("permanent failures must not wait"),
+        )
+        .unwrap_err();
+
+        assert_eq!(attempts, 1);
+        assert_eq!(err.to_string(), "permanent failure");
     }
 
     #[test]
