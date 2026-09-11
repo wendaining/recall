@@ -106,8 +106,15 @@ end
 # The TUI renders to stderr, so stdout can be captured here. The key is set by
 # `ui.search_key` in the config and injected by `recall init`.
 function __recall_search
-    set -l output (command recall search --cmd-only 2>/dev/tty | string collect)
-    set -l rc $status
+    set -l output
+    set -l rc
+    if test (uname) = Darwin
+        set output (command recall search --cmd-only </dev/tty 2>/dev/tty | string collect)
+        set rc $status
+    else
+        set output (command recall search --cmd-only 2>/dev/tty | string collect)
+        set rc $status
+    end
     if test -n "$output"
         commandline -r -- "$output"
         if test $rc -eq 2
@@ -119,3 +126,6 @@ function __recall_search
 end
 
 bind @RECALL_SEARCH_KEY@ __recall_search
+if test (uname) = Darwin
+    bind '®' __recall_search
+end

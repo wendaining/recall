@@ -134,7 +134,11 @@ PROMPT_COMMAND="__recall_prompt_begin${PROMPT_COMMAND:+; $PROMPT_COMMAND}; __rec
 # insert the command; press Enter to run it.
 __recall_search() {
   local output
-  output=$(command recall search --cmd-only 2>/dev/tty)
+  if [[ $OSTYPE == darwin* ]]; then
+    output=$(command recall search --cmd-only </dev/tty 2>/dev/tty)
+  else
+    output=$(command recall search --cmd-only 2>/dev/tty)
+  fi
   if [[ -n $output ]]; then
     READLINE_LINE=$output
     READLINE_POINT=${#READLINE_LINE}
@@ -142,3 +146,6 @@ __recall_search() {
 }
 
 bind -x '"@RECALL_SEARCH_KEY@": __recall_search'
+if [[ $OSTYPE == darwin* ]]; then
+  bind -x '"®": __recall_search'
+fi
