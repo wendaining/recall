@@ -92,13 +92,12 @@ pub fn run(config: Arc<Config>, shell: String) -> Result<i32> {
     spawn_writer(rx, config.general.db_path.clone(), shared.clone());
 
     let pty_system = native_pty_system();
-    let (cols, rows) = crossterm::terminal::size().unwrap_or((80, 24));
-    let pair = pty_system.openpty(PtySize {
-        rows,
-        cols,
+    let pair = pty_system.openpty(terminal_size().unwrap_or(PtySize {
+        rows: 24,
+        cols: 80,
         pixel_width: 0,
         pixel_height: 0,
-    })?;
+    }))?;
 
     let mut cmd = CommandBuilder::new(&shell);
     cmd.env("RECALL_PROXY_ACTIVE", "1");
@@ -362,15 +361,62 @@ fn spawn_resize_handler(master: Arc<Mutex<Box<dyn MasterPty + Send>>>) {
 }
 
 fn resize_pty(master: &Arc<Mutex<Box<dyn MasterPty + Send>>>) {
-    if let Ok((cols, rows)) = crossterm::terminal::size() {
+    if let Some(size) = terminal_size() {
         let master = master.lock().unwrap();
-        let _ = master.resize(PtySize {
+        let _ = master.resize(size);
+    }
+}
+
+#[cfg(unix)]
+fn terminal_size() -> Option<PtySize> {
+    let mut fallback = None;
+    for fd in [libc::STDOUT_FILENO, libc::STDIN_FILENO] {
+        let Some(size) = terminal_size_for_fd(fd) else {
+            continue;
+        };
+        if size.pixel_width != 0 || size.pixel_height != 0 {
+            return Some(size);
+        }
+        fallback = Some(size);
+    }
+    fallback.or_else(crossterm_terminal_size)
+}
+
+#[cfg(unix)]
+fn terminal_size_for_fd(fd: libc::c_int) -> Option<PtySize> {
+    let mut size = std::mem::MaybeUninit::<libc::winsize>::uninit();
+    // SAFETY: `size` points to writable storage for `winsize`; the caller owns a
+    // valid file descriptor for the duration of this call.
+    if unsafe { libc::ioctl(fd, libc::TIOCGWINSZ, size.as_mut_ptr()) } != 0 {
+        return None;
+    }
+    // SAFETY: a successful TIOCGWINSZ call initialized the full `winsize` value.
+    let size = unsafe { size.assume_init() };
+    if size.ws_row == 0 || size.ws_col == 0 {
+        return None;
+    }
+    Some(PtySize {
+        rows: size.ws_row,
+        cols: size.ws_col,
+        pixel_width: size.ws_xpixel,
+        pixel_height: size.ws_ypixel,
+    })
+}
+
+#[cfg(not(unix))]
+fn terminal_size() -> Option<PtySize> {
+    crossterm_terminal_size()
+}
+
+fn crossterm_terminal_size() -> Option<PtySize> {
+    crossterm::terminal::size()
+        .ok()
+        .map(|(cols, rows)| PtySize {
             rows,
             cols,
             pixel_width: 0,
             pixel_height: 0,
-        });
-    }
+        })
 }
 
 fn drain_pending(shared: &Arc<Shared>, timeout: Duration) {
@@ -397,5 +443,46 @@ impl Drop for RawModeGuard {
         if self.active {
             let _ = crossterm::terminal::disable_raw_mode();
         }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::fs::File;
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    use super::*;
+
+    #[test]
+    fn reads_cell_and_pixel_dimensions_from_pty() {
+        let expected = libc::winsize {
+            ws_row: 42,
+            ws_col: 132,
+            ws_xpixel: 1584,
+            ws_ypixel: 840,
+        };
+        let mut master_fd = -1;
+        let mut slave_fd = -1;
+        // SAFETY: all output pointers are valid, and `expected` is fully initialized.
+        let result = unsafe {
+            libc::openpty(
+                &mut master_fd,
+                &mut slave_fd,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &expected,
+            )
+        };
+        assert_eq!(result, 0);
+
+        // SAFETY: openpty returned these owned descriptors, each converted once.
+        let (_master, slave) =
+            unsafe { (File::from_raw_fd(master_fd), File::from_raw_fd(slave_fd)) };
+        let actual = terminal_size_for_fd(slave.as_raw_fd()).unwrap();
+
+        assert_eq!(actual.rows, expected.ws_row);
+        assert_eq!(actual.cols, expected.ws_col);
+        assert_eq!(actual.pixel_width, expected.ws_xpixel);
+        assert_eq!(actual.pixel_height, expected.ws_ypixel);
     }
 }

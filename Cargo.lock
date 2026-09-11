@@ -1688,6 +1688,7 @@ dependencies = [
  "crossterm",
  "dirs",
  "gethostname",
+ "libc",
  "memchr",
  "portable-pty",
  "ratatui",
