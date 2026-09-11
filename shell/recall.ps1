@@ -165,6 +165,16 @@ if (-not (Get-Module PSReadLine -ErrorAction Ignore)) {
             __recall_record $global:__RecallLastCommand $env:__RecallLastCwd $exitCode $durationNs
         }
 
+        # Restore the previous status so the shell's own prompt function
+        # (oh-my-posh, starship, ...) still reports the right exit code. The
+        # prompt is rendered inside the ReadLine call below.
+        $global:LASTEXITCODE = $lastNative
+        if ($lastStatus) {
+            $null = 1
+        } else {
+            $null = Get-Item -LiteralPath '__recall_no_such_status__' -ErrorAction SilentlyContinue
+        }
+
         $line = & $global:__RecallPrevReadLine
 
         $global:__RecallLastCommand = ''
