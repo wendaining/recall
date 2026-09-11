@@ -31,8 +31,11 @@ type Backend = CrosstermBackend<io::Stderr>;
 ///
 /// Returns an exit code: 0 for a normal edit selection, 2 when the user asked
 /// to rerun the command.
-pub fn run(args: SearchArgs, config: Config) -> Result<i32> {
+pub fn run(args: SearchArgs, config: Config, update_notice: Option<String>) -> Result<i32> {
     let mut app = App::new(config, args.cmd_only, args.query)?;
+    if let Some(notice) = update_notice {
+        app.set_status(notice);
+    }
 
     let mut guard = TerminalGuard::enter()?;
     let result = event_loop(guard.terminal(), &mut app);
