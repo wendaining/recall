@@ -61,7 +61,7 @@ if (-not (Get-Module PSReadLine -ErrorAction Ignore)) {
         if ([string]::IsNullOrWhiteSpace($Command)) {
             return $true
         }
-        return ($Command -match '^\s*(recall|atuin)(\s|$)')
+        return ($Command -match '^\s*recall(\s|$)')
     }
 
     # Emit a private OSC marker carrying a JSON control message. The marker is

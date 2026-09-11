@@ -1,6 +1,6 @@
 use clap::{Args, Parser, Subcommand};
 
-/// Warp-block style shell history viewer, complementary to atuin.
+/// Shell command and output history viewer.
 #[derive(Debug, Parser)]
 #[command(name = "recall", version, about, long_about = None)]
 pub struct Cli {
@@ -85,8 +85,6 @@ pub struct RecordArgs {
     #[arg(long)]
     pub cwd: Option<String>,
     #[arg(long)]
-    pub atuin_id: Option<String>,
-    #[arg(long)]
     pub session: Option<String>,
     /// Shell name recorded with the block.
     #[arg(long)]
@@ -103,9 +101,21 @@ pub struct ImportArgs {
 pub enum ImportSource {
     /// Backfill metadata from atuin's history database.
     Atuin {
+        /// History database path (defaults to atuin's standard data directory).
+        #[arg(long)]
+        path: Option<std::path::PathBuf>,
         /// Only import commands newer than this many days (0 = all).
         #[arg(long, default_value_t = 0)]
         days: u32,
+    },
+    /// Import commands from a standard shell history file.
+    History {
+        /// History format to parse.
+        #[arg(value_parser = crate::shell::parse_history_name)]
+        shell: String,
+        /// History file path (defaults to the shell's standard location).
+        #[arg(long)]
+        path: Option<std::path::PathBuf>,
     },
 }
 

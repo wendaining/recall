@@ -9,6 +9,21 @@ enum RcRoot {
 }
 
 #[derive(Clone, Copy)]
+enum HistoryRoot {
+    Home,
+    Data,
+    PowerShellData,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum HistoryFormat {
+    Bash,
+    Zsh,
+    Fish,
+    PowerShell,
+}
+
+#[derive(Clone, Copy)]
 struct KeyEncoding {
     alt_prefix: &'static str,
     ctrl_prefix: &'static str,
@@ -22,6 +37,9 @@ pub(crate) struct Shell {
     rc_root: Option<RcRoot>,
     rc_tail: &'static [&'static str],
     key_encoding: Option<KeyEncoding>,
+    history_root: Option<HistoryRoot>,
+    history_tail: &'static [&'static str],
+    history_format: Option<HistoryFormat>,
 }
 
 static SHELLS: &[Shell] = &[
@@ -36,6 +54,9 @@ static SHELLS: &[Shell] = &[
             ctrl_uppercase: true,
             max_chords: usize::MAX,
         }),
+        history_root: Some(HistoryRoot::Home),
+        history_tail: &[".zsh_history"],
+        history_format: Some(HistoryFormat::Zsh),
     },
     Shell {
         name: "bash",
@@ -48,6 +69,9 @@ static SHELLS: &[Shell] = &[
             ctrl_uppercase: false,
             max_chords: usize::MAX,
         }),
+        history_root: Some(HistoryRoot::Home),
+        history_tail: &[".bash_history"],
+        history_format: Some(HistoryFormat::Bash),
     },
     Shell {
         name: "fish",
@@ -60,6 +84,9 @@ static SHELLS: &[Shell] = &[
             ctrl_uppercase: false,
             max_chords: usize::MAX,
         }),
+        history_root: Some(HistoryRoot::Data),
+        history_tail: &["fish", "fish_history"],
+        history_format: Some(HistoryFormat::Fish),
     },
     Shell {
         name: "pwsh",
@@ -72,6 +99,9 @@ static SHELLS: &[Shell] = &[
             ctrl_uppercase: false,
             max_chords: 1,
         }),
+        history_root: Some(HistoryRoot::PowerShellData),
+        history_tail: &["PSReadLine", "ConsoleHost_history.txt"],
+        history_format: Some(HistoryFormat::PowerShell),
     },
     Shell {
         name: "powershell",
@@ -84,6 +114,9 @@ static SHELLS: &[Shell] = &[
             ctrl_uppercase: false,
             max_chords: 1,
         }),
+        history_root: Some(HistoryRoot::PowerShellData),
+        history_tail: &["PSReadLine", "ConsoleHost_history.txt"],
+        history_format: Some(HistoryFormat::PowerShell),
     },
     Shell {
         name: "cmd",
@@ -91,6 +124,9 @@ static SHELLS: &[Shell] = &[
         rc_root: None,
         rc_tail: &[],
         key_encoding: None,
+        history_root: None,
+        history_tail: &[],
+        history_format: None,
     },
     Shell {
         name: "nu",
@@ -98,6 +134,9 @@ static SHELLS: &[Shell] = &[
         rc_root: None,
         rc_tail: &[],
         key_encoding: None,
+        history_root: None,
+        history_tail: &[],
+        history_format: None,
     },
 ];
 
@@ -171,6 +210,39 @@ impl Shell {
         }
         out
     }
+
+    pub(crate) fn history_path(&self) -> Option<PathBuf> {
+        let home = dirs::home_dir();
+        let data = std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .or_else(|| home.as_ref().map(|home| home.join(".local").join("share")));
+        let appdata = std::env::var_os("APPDATA").map(PathBuf::from);
+        self.history_path_from(&HistoryDirs {
+            home: home.as_deref(),
+            data: data.as_deref(),
+            appdata: appdata.as_deref(),
+        })
+    }
+
+    fn history_path_from(&self, dirs: &HistoryDirs<'_>) -> Option<PathBuf> {
+        let mut path = match self.history_root? {
+            HistoryRoot::Home => dirs.home?.to_path_buf(),
+            HistoryRoot::Data => dirs.data?.to_path_buf(),
+            HistoryRoot::PowerShellData if cfg!(windows) => dirs
+                .appdata?
+                .join("Microsoft")
+                .join("Windows")
+                .join("PowerShell"),
+            HistoryRoot::PowerShellData => dirs.data?.join("powershell"),
+        };
+        path.extend(self.history_tail);
+        Some(path)
+    }
+
+    pub(crate) fn history_format(&self) -> Option<HistoryFormat> {
+        self.history_format
+    }
 }
 
 pub(crate) fn parse_integration_name(value: &str) -> Result<String, String> {
@@ -180,12 +252,25 @@ pub(crate) fn parse_integration_name(value: &str) -> Result<String, String> {
     }
 }
 
+pub(crate) fn parse_history_name(value: &str) -> Result<String, String> {
+    match Shell::from_name(value).filter(|shell| shell.history_format.is_some()) {
+        Some(_) => Ok(value.to_string()),
+        None => Err(format!("unsupported history format: {value}")),
+    }
+}
+
 #[derive(Clone, Copy)]
 struct RcDirs<'a> {
     home: Option<&'a Path>,
     zdotdir: Option<&'a Path>,
     config: Option<&'a Path>,
     documents: Option<&'a Path>,
+}
+
+struct HistoryDirs<'a> {
+    home: Option<&'a Path>,
+    data: Option<&'a Path>,
+    appdata: Option<&'a Path>,
 }
 
 enum Key {
@@ -334,5 +419,40 @@ mod tests {
             Some("pwsh")
         );
         assert!(Shell::from_command("unknown").is_none());
+    }
+
+    #[test]
+    fn resolves_default_history_paths() {
+        let dirs = HistoryDirs {
+            home: Some(Path::new("/home/u")),
+            data: Some(Path::new("/home/u/.local/share")),
+            appdata: Some(Path::new("C:/Users/u/AppData/Roaming")),
+        };
+
+        assert_eq!(
+            Shell::from_name("zsh").unwrap().history_path_from(&dirs),
+            Some(PathBuf::from("/home/u/.zsh_history"))
+        );
+        assert_eq!(
+            Shell::from_name("fish").unwrap().history_path_from(&dirs),
+            Some(PathBuf::from("/home/u/.local/share/fish/fish_history"))
+        );
+        let powershell = Shell::from_name("pwsh")
+            .unwrap()
+            .history_path_from(&dirs)
+            .unwrap();
+        if cfg!(windows) {
+            assert_eq!(
+                powershell,
+                PathBuf::from(
+                    "C:/Users/u/AppData/Roaming/Microsoft/Windows/PowerShell/PSReadLine/ConsoleHost_history.txt"
+                )
+            );
+        } else {
+            assert_eq!(
+                powershell,
+                PathBuf::from("/home/u/.local/share/powershell/PSReadLine/ConsoleHost_history.txt")
+            );
+        }
     }
 }

@@ -2,7 +2,7 @@ use anyhow::Result;
 use rusqlite::Connection;
 
 /// Current schema version. Bump and add a migration branch when changing.
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 4;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS blocks (
@@ -64,6 +64,25 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 "#;
 
+const SCHEMA_V3: &str = r#"
+CREATE TABLE IF NOT EXISTS block_imports (
+    source      TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    block_id    TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+    PRIMARY KEY (source, external_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_block_imports_block ON block_imports(block_id);
+
+INSERT OR IGNORE INTO block_imports (source, external_id, block_id)
+SELECT 'atuin', atuin_id, id FROM blocks WHERE atuin_id IS NOT NULL;
+"#;
+
+const SCHEMA_V4: &str = r#"
+DROP INDEX IF EXISTS idx_blocks_atuin;
+ALTER TABLE blocks DROP COLUMN atuin_id;
+"#;
+
 /// Configure connection pragmas and apply any pending migrations.
 pub fn migrate(conn: &Connection) -> Result<()> {
     conn.execute_batch(
@@ -80,6 +99,12 @@ pub fn migrate(conn: &Connection) -> Result<()> {
     if version < 2 {
         conn.execute_batch(SCHEMA_V2)?;
     }
+    if version < 3 {
+        conn.execute_batch(SCHEMA_V3)?;
+    }
+    if version < 4 {
+        conn.execute_batch(SCHEMA_V4)?;
+    }
     if version < SCHEMA_VERSION {
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     }
@@ -91,10 +116,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn migrates_v1_database_to_settings_table() {
+    fn migrates_v1_database_to_current_schema() {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(SCHEMA_V1).unwrap();
         conn.pragma_update(None, "user_version", 1).unwrap();
+        conn.execute(
+            "INSERT INTO blocks (id, atuin_id, command, started_at, kind, created_at)
+             VALUES ('block-1', 'legacy-1', 'echo hello', 1, 'empty', 1)",
+            [],
+        )
+        .unwrap();
 
         migrate(&conn).unwrap();
 
@@ -103,6 +134,38 @@ mod tests {
             [],
         )
         .unwrap();
+        conn.execute(
+            "INSERT INTO block_imports (source, external_id, block_id)
+             VALUES ('history:zsh', 'entry-1', 'block-1')",
+            [],
+        )
+        .unwrap();
+        let migrated_block: String = conn
+            .query_row(
+                "SELECT block_id FROM block_imports
+                  WHERE source = 'atuin' AND external_id = 'legacy-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(migrated_block, "block-1");
+        let columns = conn
+            .prepare("PRAGMA table_info(blocks)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert!(!columns.iter().any(|column| column == "atuin_id"));
+        let legacy_index_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                  WHERE type = 'index' AND name = 'idx_blocks_atuin'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(legacy_index_count, 0);
         let version: i64 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();

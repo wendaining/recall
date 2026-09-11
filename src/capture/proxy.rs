@@ -25,7 +25,6 @@ struct Active {
     id: String,
     command: String,
     cwd: Option<String>,
-    atuin_id: Option<String>,
     started_at: i64,
     buffer: Vec<u8>,
     truncated: bool,
@@ -238,7 +237,6 @@ fn apply_event(shared: &Arc<Shared>, event: Request) {
             id,
             command,
             cwd,
-            atuin_id,
             started_at,
         } => {
             if !shared.exclude.is_match(&command) {
@@ -248,7 +246,6 @@ fn apply_event(shared: &Arc<Shared>, event: Request) {
                     id,
                     command,
                     cwd,
-                    atuin_id,
                     started_at: started_at.unwrap_or_else(util::now_ns),
                     buffer: Vec::new(),
                     truncated: false,
@@ -331,7 +328,6 @@ fn finalize(
 
     Block {
         id: active.id,
-        atuin_id: active.atuin_id,
         session: Some(shared.session.clone()),
         hostname: shared.hostname.clone(),
         shell: Some(shared.shell.clone()),
@@ -435,7 +431,6 @@ mod tests {
                 id: "block-1".to_string(),
                 command: "tail -f app.log".to_string(),
                 cwd: Some("/tmp".to_string()),
-                atuin_id: None,
                 started_at: Some(123),
             },
         );

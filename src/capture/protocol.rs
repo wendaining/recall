@@ -12,8 +12,6 @@ pub enum Request {
         #[serde(default)]
         cwd: Option<String>,
         #[serde(default)]
-        atuin_id: Option<String>,
-        #[serde(default)]
         started_at: Option<i64>,
     },
     /// The command finished; stop capturing and persist.

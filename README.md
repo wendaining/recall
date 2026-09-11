@@ -4,7 +4,8 @@ English | [简体中文](README.zh-CN.md)
 
 A lightweight, Warp-Block-style shell history viewer for the terminal.
 
-Inspired from [Warp](https://www.warp.dev/) and [atuin](https://github.com/atuinsh/atuin).
+Inspired by [Warp](https://www.warp.dev/), but designed as a standalone
+shell-history and output-recording tool.
 
 `recall` records each command together with its **output**, working directory,
 timestamp and exit code, then lets you browse that history in a TUI where every
@@ -28,13 +29,17 @@ checksum. It then:
 
 - installs recall into `/usr/local/bin` or `~/.local/bin`;
 - adds the shell integration to zsh, bash, or fish automatically;
-- creates the default `config.toml` without overwriting an existing one; and
+- creates the default `config.toml` without overwriting an existing one;
+- detects existing bash, zsh, fish, and atuin history and asks whether to import
+  each source;
 - asks how new terminals should start recall's PTY proxy for automatic output
   capture. Terminal emulator configuration is recommended; shell startup is
   available as a fallback.
 
 For a non-interactive installation, set `RECALL_PROXY_SETUP` to `terminal`,
-`shell`, or `none` on the `sh` command.
+`shell`, or `none` on the `sh` command. Set `RECALL_IMPORT_HISTORY` to `yes`,
+`no`, or `ask` to control history migration (`ask` skips prompts when input is
+not interactive).
 
 ### One-line installer (Windows)
 
@@ -46,7 +51,9 @@ The installer downloads the latest release, verifies its SHA-256 checksum, and
 installs `recall.exe` into `%USERPROFILE%\.local\bin` (override with
 `RECALL_INSTALL_DIR`). It adds that directory to your user `PATH`, appends the
 PowerShell integration to `$PROFILE`, and creates the default `config.toml`.
-Set `RECALL_NO_MODIFY_PROFILE` to skip the profile change.
+It also offers to import detected shell and atuin histories. Set
+`RECALL_NO_MODIFY_PROFILE` to skip the profile change, or
+`RECALL_IMPORT_HISTORY=yes|no|ask` to control migration prompts.
 
 ### Build from source
 
@@ -84,8 +91,8 @@ a custom `RECALL_INSTALL_DIR`, pass the same variable to the uninstall command.
   pluggable backend (Wayland `wl-copy`, X11 `xclip`/`xsel`, native `arboard`,
   or OSC 52 over SSH/tmux).
 - **Rerun** the selected command straight from the TUI.
-- **Reuse atuin**: import existing atuin history as metadata; recall only adds
-  what atuin does not store (output).
+- **History import**: migrate bash, zsh, fish, PowerShell, or optional atuin
+  history into recall without making any of them a runtime dependency.
 - **Sensible edge cases**: no-output, interactive/alt-screen, binary and
   redirected commands are classified instead of silently mangled.
 - **Secrets filter** and **retention**: obvious secrets are dropped, and stored
@@ -112,7 +119,7 @@ a custom `RECALL_INSTALL_DIR`, pass the same variable to the uninstall command.
 If you built from source, add the matching line to your shell's startup file:
 
 ```zsh
-# ~/.zshrc (after `eval "$(atuin init zsh)"` if you use atuin)
+# ~/.zshrc
 eval "$(recall init zsh)"
 ```
 
@@ -212,15 +219,23 @@ the parent process chain), then falls back to `pwsh`, `powershell`, and
 Windows. To capture every Windows Terminal tab automatically, set the profile's
 **Command line** to `recall shell` (Settings → your profile → Command line).
 
-### 3. Import existing atuin history (optional)
+### 3. Import existing history (optional)
 
 ```sh
-recall import atuin            # all history
-recall import atuin --days 30  # only the last 30 days
+recall import history zsh
+recall import history bash --path ~/archives/bash_history
+recall import history fish
+recall import history pwsh
+
+recall import atuin             # optional adapter; atuin need not be installed
+recall import atuin --days 30
+recall import atuin --path /path/to/history.db
 ```
 
-Imported blocks have metadata but no output. Re-running is safe: existing
-`atuin_id`s are skipped.
+Without `--path`, recall uses the selected shell's standard history location or
+atuin's standard database location. Imported blocks contain metadata but no
+output. Generic source provenance makes repeated imports safe, while preserving
+duplicate commands that represent separate executions.
 
 ## Usage
 
@@ -301,8 +316,8 @@ terminal emulator ──▶ recall proxy (PTY/ConPTY) ──▶ shell (zsh/bash/
   the prompt is never captured. There is no side channel or socket, which
   keeps recall shell- and OS-agnostic.
 - Output is ANSI-stripped, classified, capped, zstd-compressed and stored in
-  SQLite. Command metadata is stored redundantly and linked to atuin by
-  `atuin_id`.
+  SQLite together with self-contained command metadata. Optional imports are
+  tracked in a separate, source-neutral provenance table.
 
 ## Compatibility
 

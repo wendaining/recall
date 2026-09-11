@@ -4,9 +4,9 @@ Guidance for agents and contributors working on `recall`.
 
 ## What this is
 
-`recall` is a Warp-Block-style shell history viewer and a complement to atuin.
-It captures command **output** (which atuin does not store) by running the shell
-under a PTY proxy, stores everything in SQLite, and presents it in a ratatui TUI.
+`recall` is a standalone, Warp-Block-style shell history and output viewer. It
+runs the shell under a PTY proxy, stores command metadata and **output** in
+SQLite, and presents the result in a ratatui TUI.
 
 Target platform: Linux and macOS (zsh/bash/fish) and Windows (PowerShell 7 /
 Windows PowerShell 5.1) in any VT-compatible terminal emulator. Windows uses
@@ -34,8 +34,8 @@ src/
   model.rs         Block + BlockKind
   util.rs          time/hostname/ANSI helpers
   db/
-    schema.rs      SQLite schema v1 + migrations + FTS5 trigram
-    queries.rs     insert / search / get / prune
+    schema.rs      versioned SQLite migrations + FTS5 trigram
+    queries.rs     insert / import provenance / search / get / prune
   capture/
     proxy.rs       PTY proxy, marker dispatch, async writer
     protocol.rs    control messages (start/end)
@@ -47,7 +47,8 @@ src/
     app.rs         App state + key handling
     ui.rs          ratatui rendering
     mod.rs         terminal setup (renders to stderr) + event loop
-  commands/        one module per CLI command
+  commands/        one module per CLI command; optional import adapters live
+    import/        below import.rs and must not leak into core models/config
 shell/recall.zsh   embedded shell integrations (include_str!)
 shell/recall.bash
 shell/recall.fish
@@ -72,8 +73,8 @@ coupling points are:
 - `src/tui/mod.rs`: terminal keyboard-protocol support.
 - `src/clipboard/mod.rs`: platform clipboard backends.
 - `src/shell.rs`: the table of supported shells, startup files, init scripts,
-  and key encodings. Add shell-specific behavior to this table rather than
-  branching in commands.
+  history files, formats, and key encodings. Add shell-specific behavior to
+  this table rather than branching in commands.
 
 Changes to these boundaries require regression coverage on Linux, macOS, and
 Windows. Run the full CI matrix; PTY input or teardown changes must also keep

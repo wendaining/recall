@@ -35,38 +35,47 @@ fn conpty_forwards_special_keys_and_exits_cleanly() {
     let mut child = pair.slave.spawn_command(command).unwrap();
     drop(pair.slave);
     let mut reader = pair.master.try_clone_reader().unwrap();
-    let mut writer = pair.master.take_writer().unwrap();
+    let writer = Arc::new(Mutex::new(pair.master.take_writer().unwrap()));
     drop(pair.master);
 
     let output = Arc::new(Mutex::new(Vec::new()));
     let reader_output = output.clone();
+    let terminal_writer = writer.clone();
     thread::spawn(move || {
         let mut chunk = [0u8; 4096];
+        let mut cursor_queries_answered = 0;
         while let Ok(count) = reader.read(&mut chunk) {
             if count == 0 {
                 break;
             }
-            reader_output
-                .lock()
-                .unwrap()
-                .extend_from_slice(&chunk[..count]);
+            let cursor_queries = {
+                let mut output = reader_output.lock().unwrap();
+                output.extend_from_slice(&chunk[..count]);
+                output
+                    .windows(b"\x1b[6n".len())
+                    .filter(|window| *window == b"\x1b[6n")
+                    .count()
+            };
+
+            while cursor_queries_answered < cursor_queries {
+                let mut writer = terminal_writer.lock().unwrap();
+                if writer.write_all(b"\x1b[1;1R").is_err() || writer.flush().is_err() {
+                    return;
+                }
+                cursor_queries_answered += 1;
+            }
         }
     });
 
-    writer
-        .write_all(b"Write-Output ('__RECALL_CONPTY_' + 'KEY__')\r")
-        .unwrap();
-    writer.flush().unwrap();
+    write_input(&writer, b"Write-Output ('__RECALL_CONPTY_' + 'KEY__')\r");
     require_occurrences(&output, "__RECALL_CONPTY_KEY__", 1, &mut child);
 
-    // Up Arrow is delivered as VT input. PSReadLine should recall and execute
-    // the previous command, proving non-text keys survive both ConPTY layers.
-    writer.write_all(b"\x1b[A\r").unwrap();
-    writer.flush().unwrap();
+    // PowerShell enables win32-input-mode through the proxied output, so a
+    // terminal encodes Up Arrow as key-down/up INPUT_RECORD sequences.
+    write_input(&writer, b"\x1b[38;72;0;1;256;1_\x1b[38;72;0;0;256;1_\r");
     require_occurrences(&output, "__RECALL_CONPTY_KEY__", 2, &mut child);
 
-    writer.write_all(b"exit\r").unwrap();
-    writer.flush().unwrap();
+    write_input(&writer, b"exit\r");
 
     let deadline = Instant::now() + Duration::from_secs(15);
     let status = loop {
@@ -84,6 +93,12 @@ fn conpty_forwards_special_keys_and_exits_cleanly() {
     assert_eq!(status.exit_code(), 0, "{}", output_text(&output));
     drop(writer);
     let _ = std::fs::remove_dir_all(test_dir);
+}
+
+fn write_input(writer: &Arc<Mutex<Box<dyn Write + Send>>>, bytes: &[u8]) {
+    let mut writer = writer.lock().unwrap();
+    writer.write_all(bytes).unwrap();
+    writer.flush().unwrap();
 }
 
 fn require_occurrences(

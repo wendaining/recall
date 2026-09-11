@@ -4,7 +4,8 @@
 
 一个轻量、Warp Block 风格的终端 shell 历史查看器。
 
-灵感来自 [Warp](https://www.warp.dev/) 与 [atuin](https://github.com/atuinsh/atuin)。
+灵感来自 [Warp](https://www.warp.dev/)，但它本身是一个独立的 shell 历史与输出
+记录工具。
 
 `recall` 会记录每条命令及其**输出**、工作目录、时间戳和退出码，然后让你在一个
 TUI 中浏览这些历史——每次执行都是一个独立的 *block*。它不改动你的终端模拟器，
@@ -26,11 +27,13 @@ curl -fsSL https://raw.githubusercontent.com/wendaining/recall/master/install.sh
 - 将 recall 安装到 `/usr/local/bin` 或 `~/.local/bin`；
 - 自动把 shell 集成写入 zsh、bash 或 fish 的启动文件；
 - 在正确位置创建默认 `config.toml`，已有配置不会被覆盖；
+- 检测已有 bash、zsh、fish 与 atuin 历史，并逐项询问是否导入；
 - 询问新终端该如何启动 recall 的 PTY 代理以自动捕获输出。推荐配置终端模拟器；
   如果终端不支持，再使用 shell 启动文件方式。
 
 非交互安装时，可在 `sh` 命令上将 `RECALL_PROXY_SETUP` 设置为 `terminal`、
-`shell` 或 `none`。
+`shell` 或 `none`。`RECALL_IMPORT_HISTORY` 可设为 `yes`、`no` 或 `ask` 来控制
+历史迁移；输入不是交互终端时，`ask` 不会阻塞安装。
 
 ### Windows 一行安装
 
@@ -41,7 +44,8 @@ irm https://raw.githubusercontent.com/wendaining/recall/master/install.ps1 | iex
 脚本会下载最新 Release、校验 SHA-256，并把 `recall.exe` 安装到
 `%USERPROFILE%\.local\bin`（可用 `RECALL_INSTALL_DIR` 覆盖），把该目录加入用户
 `PATH`，将 PowerShell 集成追加到 `$PROFILE`，并创建默认 `config.toml`。设置
-`RECALL_NO_MODIFY_PROFILE` 可跳过修改 profile。
+`RECALL_NO_MODIFY_PROFILE` 可跳过修改 profile。安装器也会询问是否导入检测到的
+shell 与 atuin 历史；可用 `RECALL_IMPORT_HISTORY=yes|no|ask` 控制。
 
 ### 从源码构建
 
@@ -73,7 +77,8 @@ irm https://raw.githubusercontent.com/wendaining/recall/master/uninstall.ps1 | i
 - **复制**：通过可插拔后端把选中的命令或输出复制到剪贴板（Wayland `wl-copy`、
   X11 `xclip`/`xsel`、原生 `arboard`，或 SSH/tmux 下的 OSC 52）。
 - **重跑**：直接在 TUI 中重新执行选中的命令。
-- **复用 atuin**：把已有 atuin 历史导入为元数据；recall 只补充 atuin 不存的输出。
+- **历史导入**：可迁移 bash、zsh、fish、PowerShell，或可选的 atuin 历史；
+  它们都不是 recall 的运行时依赖。
 - **合理的边界处理**：无输出、交互式/全屏、二进制、被重定向的命令都会被分类标记，
   而不是被悄悄弄乱。
 - **密钥过滤**与**保留策略**：明显的密钥会被丢弃，存储的输出默认 30 天后过期。
@@ -98,7 +103,7 @@ irm https://raw.githubusercontent.com/wendaining/recall/master/uninstall.ps1 | i
 如果是从源码构建，请在对应 shell 的启动文件中加入相应的一行：
 
 ```zsh
-# ~/.zshrc（如果用了 atuin，放在 `eval "$(atuin init zsh)"` 之后）
+# ~/.zshrc
 eval "$(recall init zsh)"
 ```
 
@@ -189,14 +194,22 @@ Windows 上代理通过 ConPTY 运行 shell。未设置 `proxy.shell` 和 `--she
 要让 Windows Terminal 的每个标签页都自动捕获，可在"设置 → 你的配置文件 →
 命令行"中填入 `recall shell`。
 
-### 3. 导入已有 atuin 历史（可选）
+### 3. 导入已有历史（可选）
 
 ```sh
-recall import atuin            # 全部历史
-recall import atuin --days 30  # 仅最近 30 天
+recall import history zsh
+recall import history bash --path ~/archives/bash_history
+recall import history fish
+recall import history pwsh
+
+recall import atuin             # 可选适配器；无需安装 atuin
+recall import atuin --days 30
+recall import atuin --path /path/to/history.db
 ```
 
-导入的 block 只有元数据、没有输出。重复运行是安全的：已存在的 `atuin_id` 会被跳过。
+不传 `--path` 时，recall 会使用对应 shell 的标准历史路径，或 atuin 的标准数据库
+路径。导入的 block 只有元数据、没有输出。通用来源记录让重复导入保持幂等，同时会
+保留代表不同执行次数的重复命令。
 
 ## 使用
 
@@ -271,8 +284,8 @@ list_width_pct = 42          # 列表面板初始宽度；在 TUI 中调整后�
   标记，携带 `{command, cwd, start}`；并在下一个提示符绘制前写入带退出码的结束标记。
 - 代理解析并剥离这些标记，因此命令边界精确，提示符永远不会被捕获。没有旁路通道
   或 socket，这让 recall 与 shell、操作系统无关。
-- 输出经过去 ANSI、分类、限长、zstd 压缩后存入 SQLite。命令元数据冗余存储，并通过
-  `atuin_id` 与 atuin 关联。
+- 输出经过去 ANSI、分类、限长、zstd 压缩后，与完整命令元数据一起存入 SQLite。
+  可选导入的来源关系保存在独立、与具体来源无关的记录表中。
 
 ## 兼容性
 
