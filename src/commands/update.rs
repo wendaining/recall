@@ -373,6 +373,14 @@ fn format_bytes(bytes: u64) -> String {
 mod tests {
     use super::*;
 
+    fn test_dir(name: &str) -> PathBuf {
+        let path =
+            std::env::temp_dir().join(format!("recall-update-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&path);
+        fs::create_dir(&path).unwrap();
+        path
+    }
+
     #[test]
     fn compares_stable_versions() {
         assert!(is_newer("v0.2.0", "0.1.0").unwrap());
@@ -397,5 +405,45 @@ mod tests {
             checksum,
             "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
         );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn extracts_recall_from_a_release_archive() {
+        let directory = test_dir("extract");
+        let archive = directory.join("release.tar.gz");
+        let payload = b"replacement binary";
+        let encoder = flate2::write::GzEncoder::new(
+            File::create(&archive).unwrap(),
+            flate2::Compression::default(),
+        );
+        let mut tar = tar::Builder::new(encoder);
+        let mut header = tar::Header::new_gnu();
+        header.set_size(payload.len() as u64);
+        header.set_mode(0o755);
+        header.set_cksum();
+        tar.append_data(&mut header, "recall", &payload[..])
+            .unwrap();
+        tar.into_inner().unwrap().finish().unwrap();
+
+        let extracted = directory.join("recall");
+        extract_binary(&archive, &extracted).unwrap();
+        assert_eq!(fs::read(&extracted).unwrap(), payload);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn replaces_binary_atomically() {
+        let directory = test_dir("replace");
+        let executable = directory.join("recall");
+        let replacement = directory.join("recall.new");
+        fs::write(&executable, b"old binary").unwrap();
+        fs::write(&replacement, b"new binary").unwrap();
+
+        replace_binary(&replacement, &executable).unwrap();
+        assert_eq!(fs::read(&executable).unwrap(), b"new binary");
+        assert!(!replacement.exists());
+        fs::remove_dir_all(directory).unwrap();
     }
 }
