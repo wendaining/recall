@@ -65,6 +65,18 @@ install -Dm755 target/release/recall ~/.local/bin/recall      # Linux/macOS
 On Windows the binary is `target\release\recall.exe`; copy it somewhere on
 `PATH`. Make sure the install directory is on `PATH`.
 
+### Update
+
+```sh
+recall update
+```
+
+`recall update` downloads the latest stable GitHub Release for the current
+platform, shows download progress, verifies its SHA-256 checksum, and replaces
+the running binary. Use `recall update --check` to check without installing.
+The history TUI checks for stable updates at most once every 24 hours and shows
+an available update in its status bar.
+
 ### Uninstall
 
 ```sh
