@@ -86,6 +86,9 @@ remain covered end to end.
 - `tests/windows_proxy.rs` drives a nested terminal: the test-side ConPTY hosts
   the recall proxy, which hosts PowerShell in a second ConPTY. Treat it as an
   asynchronous protocol, not a process that is ready immediately after spawn.
+- Keep each Windows `MasterPty` alive until its child exits. Cloned reader and
+  writer pipe handles do not own the pseudoconsole; dropping the master closes
+  ConPTY and makes startup output depend on thread scheduling.
 - Never send test input until an observable PowerShell prompt has arrived. After
   each command, wait for the next unique prompt marker before sending a special
   key or another command; seeing command output alone does not mean PSReadLine
