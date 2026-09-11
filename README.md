@@ -29,7 +29,7 @@ checksum. It then:
 
 - installs recall into `/usr/local/bin` or `~/.local/bin`;
 - adds the shell integration to zsh, bash, or fish automatically;
-- creates the default `config.toml` without overwriting an existing one; and
+- creates the default `config.toml` without overwriting an existing one;
 - detects existing bash, zsh, fish, and atuin history and asks whether to import
   each source;
 - asks how new terminals should start recall's PTY proxy for automatic output

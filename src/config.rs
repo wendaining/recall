@@ -157,7 +157,17 @@ impl Config {
     pub fn load_from(path: &Path) -> Result<Self> {
         let text = std::fs::read_to_string(path)
             .with_context(|| format!("reading config {}", path.display()))?;
-        toml::from_str(&text).with_context(|| format!("parsing config {}", path.display()))
+        Self::parse(&text).with_context(|| format!("parsing config {}", path.display()))
+    }
+
+    fn parse(text: &str) -> Result<Self> {
+        let mut value: toml::Value = toml::from_str(text)?;
+        // Configs generated before standalone imports contained this field.
+        // Accept it during upgrades without retaining it in the current model.
+        if let Some(general) = value.get_mut("general").and_then(toml::Value::as_table_mut) {
+            general.remove("atuin_db_path");
+        }
+        Ok(value.try_into()?)
     }
 }
 
@@ -217,5 +227,20 @@ mod tests {
 
         assert_eq!(config.ui.search_key, "ctrl-x ctrl-r");
         assert_eq!(Config::default().ui.search_key, "alt-r");
+    }
+
+    #[test]
+    fn accepts_removed_import_path_from_generated_configs() {
+        let config = Config::parse(
+            r#"
+            [general]
+            atuin_db_path = "/old/history.db"
+            max_output_bytes = 2048
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(config.general.max_output_bytes, 2048);
+        assert!(!toml::to_string(&config).unwrap().contains("atuin_db_path"));
     }
 }
