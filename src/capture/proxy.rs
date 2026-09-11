@@ -1,5 +1,5 @@
 use std::ffi::{OsStr, OsString};
-use std::io::{IsTerminal, Read, Write};
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -8,7 +8,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
+use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 
 use crate::capture::classifier::{self, ClassifyInput};
 use crate::capture::marker::{Feed, MarkerFilter, Op};
@@ -17,6 +17,7 @@ use crate::capture::secrets;
 use crate::config::Config;
 use crate::db::{Db, queries};
 use crate::model::{Block, BlockKind};
+use crate::platform;
 use crate::util;
 
 /// In-flight capture for a single command.
@@ -74,7 +75,7 @@ struct Shared {
     tx: Sender<Block>,
     pending: AtomicUsize,
     markers_seen: AtomicUsize,
-    input_bytes: AtomicUsize,
+    input_bytes: Arc<AtomicUsize>,
 }
 
 /// Run the PTY proxy until the child shell exits. Returns the child exit code.
@@ -102,13 +103,13 @@ pub fn run(config: Arc<Config>, shell: String, login: bool) -> Result<i32> {
         tx,
         pending: AtomicUsize::new(0),
         markers_seen: AtomicUsize::new(0),
-        input_bytes: AtomicUsize::new(0),
+        input_bytes: Arc::new(AtomicUsize::new(0)),
     });
 
     spawn_writer(rx, config.general.db_path.clone(), shared.clone());
 
     let pty_system = native_pty_system();
-    let pair = pty_system.openpty(terminal_size().unwrap_or(PtySize {
+    let pair = pty_system.openpty(platform::terminal_size().unwrap_or(PtySize {
         rows: 24,
         cols: 80,
         pixel_width: 0,
@@ -116,10 +117,7 @@ pub fn run(config: Arc<Config>, shell: String, login: bool) -> Result<i32> {
     }))?;
 
     let mut cmd = CommandBuilder::new(&shell);
-    // `-l` is a Unix login-shell convention; PowerShell/cmd reject it.
-    if login && cfg!(unix) {
-        cmd.arg("-l");
-    }
+    platform::configure_shell(&mut cmd, login);
     cmd.env("RECALL_PROXY_ACTIVE", "1");
     cmd.env("RECALL_SESSION", &session);
     if let Some(path) = recall_path() {
@@ -137,10 +135,10 @@ pub fn run(config: Arc<Config>, shell: String, login: bool) -> Result<i32> {
     let master = Arc::new(Mutex::new(pair.master));
     let running = Arc::new(AtomicBool::new(true));
 
-    let _raw_guard = RawModeGuard::new();
+    let raw_guard = platform::RawModeGuard::new();
 
-    spawn_stdin_pump(writer, shared.clone());
-    spawn_resize_handler(master.clone(), running.clone());
+    platform::spawn_input_forwarder(writer, shared.input_bytes.clone());
+    platform::spawn_resize_handler(master.clone(), running.clone());
     // The reader holds an OS pipe handle, not the pseudoconsole. Dropping the
     // last `master` closes ConPTY, which is what finally delivers EOF to the
     // reader on Windows; the resize thread owns the remaining reference.
@@ -212,7 +210,7 @@ pub fn run(config: Arc<Config>, shell: String, login: bool) -> Result<i32> {
 
     drain_pending(&shared, Duration::from_millis(500));
 
-    drop(_raw_guard);
+    drop(raw_guard);
 
     if should_warn(
         shared.markers_seen.load(Ordering::SeqCst),
@@ -401,121 +399,6 @@ fn spawn_writer(rx: Receiver<Block>, db_path: PathBuf, shared: Arc<Shared>) {
     });
 }
 
-fn spawn_stdin_pump(writer: Box<dyn Write + Send>, shared: Arc<Shared>) {
-    spawn_byte_pump(writer, shared);
-}
-
-fn spawn_byte_pump(mut writer: Box<dyn Write + Send>, shared: Arc<Shared>) {
-    thread::spawn(move || {
-        let mut stdin = std::io::stdin();
-        let mut buf = [0u8; 8192];
-        loop {
-            match stdin.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    shared.input_bytes.fetch_add(n, Ordering::SeqCst);
-                    if writer.write_all(&buf[..n]).is_err() {
-                        break;
-                    }
-                    let _ = writer.flush();
-                }
-                Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
-                Err(_) => break,
-            }
-        }
-    });
-}
-
-#[cfg(unix)]
-fn spawn_resize_handler(master: Arc<Mutex<Box<dyn MasterPty + Send>>>, _running: Arc<AtomicBool>) {
-    thread::spawn(move || {
-        use signal_hook::consts::SIGWINCH;
-        use signal_hook::iterator::Signals;
-        let Ok(mut signals) = Signals::new([SIGWINCH]) else {
-            return;
-        };
-        for _ in signals.forever() {
-            resize_pty(&master);
-        }
-    });
-}
-
-#[cfg(not(unix))]
-fn spawn_resize_handler(master: Arc<Mutex<Box<dyn MasterPty + Send>>>, running: Arc<AtomicBool>) {
-    thread::spawn(move || {
-        let mut last = crossterm::terminal::size().unwrap_or((0, 0));
-        while running.load(Ordering::SeqCst) {
-            thread::sleep(Duration::from_millis(250));
-            let Ok(size) = crossterm::terminal::size() else {
-                continue;
-            };
-            if size != last {
-                last = size;
-                resize_pty(&master);
-            }
-        }
-    });
-}
-
-fn resize_pty(master: &Arc<Mutex<Box<dyn MasterPty + Send>>>) {
-    if let Some(size) = terminal_size() {
-        let master = master.lock().unwrap();
-        let _ = master.resize(size);
-    }
-}
-
-#[cfg(unix)]
-fn terminal_size() -> Option<PtySize> {
-    let mut fallback = None;
-    for fd in [libc::STDOUT_FILENO, libc::STDIN_FILENO] {
-        let Some(size) = terminal_size_for_fd(fd) else {
-            continue;
-        };
-        if size.pixel_width != 0 || size.pixel_height != 0 {
-            return Some(size);
-        }
-        fallback = Some(size);
-    }
-    fallback.or_else(crossterm_terminal_size)
-}
-
-#[cfg(unix)]
-fn terminal_size_for_fd(fd: libc::c_int) -> Option<PtySize> {
-    let mut size = std::mem::MaybeUninit::<libc::winsize>::uninit();
-    // SAFETY: `size` points to writable storage for `winsize`; the caller owns a
-    // valid file descriptor for the duration of this call.
-    if unsafe { libc::ioctl(fd, libc::TIOCGWINSZ, size.as_mut_ptr()) } != 0 {
-        return None;
-    }
-    // SAFETY: a successful TIOCGWINSZ call initialized the full `winsize` value.
-    let size = unsafe { size.assume_init() };
-    if size.ws_row == 0 || size.ws_col == 0 {
-        return None;
-    }
-    Some(PtySize {
-        rows: size.ws_row,
-        cols: size.ws_col,
-        pixel_width: size.ws_xpixel,
-        pixel_height: size.ws_ypixel,
-    })
-}
-
-#[cfg(not(unix))]
-fn terminal_size() -> Option<PtySize> {
-    crossterm_terminal_size()
-}
-
-fn crossterm_terminal_size() -> Option<PtySize> {
-    crossterm::terminal::size()
-        .ok()
-        .map(|(cols, rows)| PtySize {
-            rows,
-            cols,
-            pixel_width: 0,
-            pixel_height: 0,
-        })
-}
-
 fn drain_pending(shared: &Arc<Shared>, timeout: Duration) {
     let deadline = Instant::now() + timeout;
     while shared.pending.load(Ordering::SeqCst) > 0 && Instant::now() < deadline {
@@ -523,93 +406,8 @@ fn drain_pending(shared: &Arc<Shared>, timeout: Duration) {
     }
 }
 
-struct RawModeGuard {
-    active: bool,
-    #[cfg(windows)]
-    original_input_mode: Option<u32>,
-}
-
-impl RawModeGuard {
-    fn new() -> Self {
-        let is_tty = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
-        // Crossterm's raw mode only clears line/echo/processed input on Windows.
-        // Pass-through also needs ENABLE_VIRTUAL_TERMINAL_INPUT so the console
-        // yields VT bytes for every key and terminal response instead of legacy
-        // scan codes.
-        #[cfg(windows)]
-        let original_input_mode = if is_tty {
-            enable_virtual_terminal_input()
-        } else {
-            None
-        };
-        let active = is_tty && crossterm::terminal::enable_raw_mode().is_ok();
-        Self {
-            active,
-            #[cfg(windows)]
-            original_input_mode,
-        }
-    }
-}
-
-impl Drop for RawModeGuard {
-    fn drop(&mut self) {
-        if self.active {
-            let _ = crossterm::terminal::disable_raw_mode();
-        }
-        #[cfg(windows)]
-        if let Some(mode) = self.original_input_mode {
-            restore_console_mode(mode);
-        }
-    }
-}
-
-/// Enable VT input mode, returning the previous mode for restoration.
-#[cfg(windows)]
-fn enable_virtual_terminal_input() -> Option<u32> {
-    use windows_sys::Win32::System::Console::{
-        ENABLE_VIRTUAL_TERMINAL_INPUT, GetConsoleMode, GetStdHandle, STD_INPUT_HANDLE,
-        SetConsoleMode,
-    };
-
-    // SAFETY: reads and writes the console mode of the process's own standard
-    // input handle, storing the value in a local.
-    unsafe {
-        let handle = GetStdHandle(STD_INPUT_HANDLE);
-        let mut mode = 0u32;
-        if GetConsoleMode(handle, &mut mode) == 0 {
-            return None;
-        }
-        let original = mode;
-        if SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_INPUT) == 0 {
-            return None;
-        }
-        if std::env::var_os("RECALL_DEBUG").is_some() {
-            util::eprintln_flush(&format!(
-                "recall[debug]: VT input enabled (was {original:#x})"
-            ));
-        }
-        Some(original)
-    }
-}
-
-#[cfg(windows)]
-fn restore_console_mode(mode: u32) {
-    use windows_sys::Win32::System::Console::{GetStdHandle, STD_INPUT_HANDLE, SetConsoleMode};
-
-    // SAFETY: restores the previously captured mode on the standard input handle.
-    unsafe {
-        let handle = GetStdHandle(STD_INPUT_HANDLE);
-        SetConsoleMode(handle, mode);
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    #[cfg(unix)]
-    use std::fs::File;
-    #[cfg(unix)]
-    use std::os::fd::{AsRawFd, FromRawFd};
-
     use super::*;
 
     #[test]
@@ -628,7 +426,7 @@ mod tests {
             tx,
             pending: AtomicUsize::new(0),
             markers_seen: AtomicUsize::new(0),
-            input_bytes: AtomicUsize::new(0),
+            input_bytes: Arc::new(AtomicUsize::new(0)),
         });
 
         apply_event(
@@ -720,7 +518,7 @@ mod tests {
             tx,
             pending: AtomicUsize::new(0),
             markers_seen: AtomicUsize::new(0),
-            input_bytes: AtomicUsize::new(0),
+            input_bytes: Arc::new(AtomicUsize::new(0)),
         });
 
         let mut stream = Vec::new();
@@ -754,40 +552,5 @@ mod tests {
         assert_eq!(block.shell.as_deref(), Some("pwsh"));
         // The ANSI stripper normalizes the CRLF line endings ConPTY emits.
         assert_eq!(block.output.as_deref(), Some(b"hi\nthere".as_slice()));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn reads_cell_and_pixel_dimensions_from_pty() {
-        let mut expected = libc::winsize {
-            ws_row: 42,
-            ws_col: 132,
-            ws_xpixel: 1584,
-            ws_ypixel: 840,
-        };
-        let mut master_fd = -1;
-        let mut slave_fd = -1;
-        let expected_ptr = std::ptr::from_mut(&mut expected);
-        // SAFETY: all output pointers are valid, and `expected` is fully initialized.
-        let result = unsafe {
-            libc::openpty(
-                &mut master_fd,
-                &mut slave_fd,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                expected_ptr,
-            )
-        };
-        assert_eq!(result, 0);
-
-        // SAFETY: openpty returned these owned descriptors, each converted once.
-        let (_master, slave) =
-            unsafe { (File::from_raw_fd(master_fd), File::from_raw_fd(slave_fd)) };
-        let actual = terminal_size_for_fd(slave.as_raw_fd()).unwrap();
-
-        assert_eq!(actual.rows, expected.ws_row);
-        assert_eq!(actual.cols, expected.ws_col);
-        assert_eq!(actual.pixel_width, expected.ws_xpixel);
-        assert_eq!(actual.pixel_height, expected.ws_ypixel);
     }
 }

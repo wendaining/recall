@@ -5,6 +5,7 @@ mod commands;
 mod config;
 mod db;
 mod model;
+mod platform;
 mod tui;
 mod util;
 
