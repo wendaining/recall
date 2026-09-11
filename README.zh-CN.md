@@ -21,10 +21,15 @@ curl -fsSL https://raw.githubusercontent.com/wendaining/recall/master/install.sh
 ```
 
 安装脚本会自动识别 Linux 或 macOS 及当前 CPU 架构，从最新的 GitHub Release
-下载对应二进制文件，校验 SHA-256 后安装到 `/usr/local/bin` 或
-`~/.local/bin`。安装完成后，请按脚本输出的提示配置 shell hook 和配置文件。
-脚本还会显示当前配置文件路径及简单的首次使用说明，包括进入 recall 后按 `F1`
-查看帮助。
+下载对应二进制文件并校验 SHA-256。随后它会：
+
+- 将 recall 安装到 `/usr/local/bin` 或 `~/.local/bin`；
+- 自动把 shell 集成写入 zsh、bash 或 fish 的启动文件；
+- 在正确位置创建默认 `config.toml`，已有配置不会被覆盖；
+- 询问是否让每个新交互式终端自动进入 recall 的 PTY 代理，从而自动捕获命令输出。
+
+该询问默认选择“是”。非交互安装时，可在 `sh` 命令上设置
+`RECALL_AUTO_PROXY=1` 或 `RECALL_AUTO_PROXY=0`。
 
 ### 从源码构建
 
@@ -34,6 +39,15 @@ install -Dm755 target/release/recall ~/.local/bin/recall
 ```
 
 确保 `~/.local/bin` 在 `PATH` 中。
+
+### 卸载
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/wendaining/recall/master/uninstall.sh | sh
+```
+
+卸载脚本会删除二进制文件，以及安装脚本管理的 shell 配置块；你的配置文件和命令
+历史会保留。如果安装时指定了自定义 `RECALL_INSTALL_DIR`，卸载时也要传入相同变量。
 
 ## 特性
 
@@ -59,15 +73,12 @@ install -Dm755 target/release/recall ~/.local/bin/recall
 
 > [!note]
 >
-> 你可以克隆本仓库，然后告诉你的 Agent：
->
-> ```text
-> Read the Setup part of README.md file and set it up for me.
-> ```
+> 一行安装脚本会自动完成 shell 集成并创建默认配置。下面的手动步骤主要用于源码
+> 构建或自定义安装。
 
 ### 1. Shell 集成
 
-在对应 shell 的启动文件中加入相应的一行：
+如果是从源码构建，请在对应 shell 的启动文件中加入相应的一行：
 
 ```zsh
 # ~/.zshrc（如果用了 atuin，放在 `eval "$(atuin init zsh)"` 之后）
@@ -90,9 +101,13 @@ zsh 下可用 `RECALL_KEY` 覆盖按键，bash/fish 下可自行重新绑定。
 未使用代理时，recall 仍会在后台记录命令元数据。要捕获输出，需要让 shell 运行在
 代理之下。
 
-### 2. 在代理下运行
+### 2. 使用 PTY 代理捕获输出
 
-可以手动启动一个被包裹的 shell：
+一行安装脚本会询问是否自动启用。选择启用后，每个新交互式终端都会在 recall 的
+PTY 代理中启动你原本使用的 shell。它不会替换你的 shell，只是让 recall 能观察并
+保存每条命令对应的终端输出。
+
+如果安装时选择不启用，或使用源码安装，可以手动启动被包裹的 shell：
 
 ```sh
 recall shell

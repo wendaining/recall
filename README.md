@@ -23,11 +23,17 @@ curl -fsSL https://raw.githubusercontent.com/wendaining/recall/master/install.sh
 ```
 
 The installer detects Linux or macOS and the current CPU architecture, downloads
-the matching binary from the latest GitHub Release, verifies its SHA-256
-checksum, and installs it into `/usr/local/bin` or `~/.local/bin`. When it
-finishes, follow the printed shell-hook and configuration instructions. It also
-shows the active configuration path and a few first-run tips, including pressing
-`F1` inside recall for help.
+the matching binary from the latest GitHub Release, and verifies its SHA-256
+checksum. It then:
+
+- installs recall into `/usr/local/bin` or `~/.local/bin`;
+- adds the shell integration to zsh, bash, or fish automatically;
+- creates the default `config.toml` without overwriting an existing one; and
+- asks whether every new interactive terminal should start inside recall's PTY
+  proxy, which enables automatic command-output capture.
+
+The prompt defaults to yes. For a non-interactive installation, set
+`RECALL_AUTO_PROXY=1` or `RECALL_AUTO_PROXY=0` on the `sh` command.
 
 ### Build from source
 
@@ -37,6 +43,16 @@ install -Dm755 target/release/recall ~/.local/bin/recall
 ```
 
 Make sure `~/.local/bin` is on `PATH`.
+
+### Uninstall
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/wendaining/recall/master/uninstall.sh | sh
+```
+
+The uninstaller removes the binary and only the shell setup managed by the
+installer. It keeps your configuration and command history. If you installed to
+a custom `RECALL_INSTALL_DIR`, pass the same variable to the uninstall command.
 
 ## Features
 
@@ -68,15 +84,13 @@ Make sure `~/.local/bin` is on `PATH`.
 
 > [!note]
 >
-> You can clone this Repo and tell your Agent:
->
-> ```text
-> Read the Setup part of README.md file and set it up for me. Ask user whether to launch it as the shell or not.
-> ```
+> The one-line installer completes the shell integration and creates the default
+> configuration automatically. The manual steps below are mainly for source
+> builds or custom setups.
 
 ### 1. Shell integration
 
-Add the matching line to your shell's startup file:
+If you built from source, add the matching line to your shell's startup file:
 
 ```zsh
 # ~/.zshrc (after `eval "$(atuin init zsh)"` if you use atuin)
@@ -100,9 +114,15 @@ inserts the selected command into your prompt. Override the key with
 Without the proxy, recall still records command metadata in the background. To
 capture output, run your shell under the proxy.
 
-### 2. Run under the proxy
+### 2. Enable output capture with the PTY proxy
 
-Either start a wrapped shell manually:
+The one-line installer asks whether to enable this automatically. If accepted,
+every new interactive terminal starts your usual shell inside recall's PTY
+proxy. This does not replace your shell; it lets recall observe and save the
+terminal output associated with each command.
+
+If you declined the prompt or installed from source, start a wrapped shell
+manually:
 
 ```sh
 recall shell
