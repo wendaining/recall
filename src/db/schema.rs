@@ -2,7 +2,7 @@ use anyhow::Result;
 use rusqlite::Connection;
 
 /// Current schema version. Bump and add a migration branch when changing.
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 4;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS blocks (
@@ -78,6 +78,11 @@ INSERT OR IGNORE INTO block_imports (source, external_id, block_id)
 SELECT 'atuin', atuin_id, id FROM blocks WHERE atuin_id IS NOT NULL;
 "#;
 
+const SCHEMA_V4: &str = r#"
+DROP INDEX IF EXISTS idx_blocks_atuin;
+ALTER TABLE blocks DROP COLUMN atuin_id;
+"#;
+
 /// Configure connection pragmas and apply any pending migrations.
 pub fn migrate(conn: &Connection) -> Result<()> {
     conn.execute_batch(
@@ -96,6 +101,9 @@ pub fn migrate(conn: &Connection) -> Result<()> {
     }
     if version < 3 {
         conn.execute_batch(SCHEMA_V3)?;
+    }
+    if version < 4 {
+        conn.execute_batch(SCHEMA_V4)?;
     }
     if version < SCHEMA_VERSION {
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
@@ -141,6 +149,23 @@ mod tests {
             )
             .unwrap();
         assert_eq!(migrated_block, "block-1");
+        let columns = conn
+            .prepare("PRAGMA table_info(blocks)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert!(!columns.iter().any(|column| column == "atuin_id"));
+        let legacy_index_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                  WHERE type = 'index' AND name = 'idx_blocks_atuin'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(legacy_index_count, 0);
         let version: i64 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();

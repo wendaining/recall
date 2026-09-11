@@ -15,8 +15,8 @@ pub fn run(args: ImportArgs) -> Result<()> {
     }
 }
 
-/// Backfill metadata (no output) from atuin's plaintext history database.
-/// Existing `atuin_id`s are skipped so re-running is safe.
+/// Backfill metadata (no output) from an atuin history database.
+/// Import provenance makes repeated runs safe.
 fn import_atuin(path: Option<PathBuf>, days: u32) -> Result<()> {
     let config = Config::load()?;
     let atuin_path = path.unwrap_or_else(default_atuin_db_path);
@@ -62,7 +62,6 @@ fn import_atuin(path: Option<PathBuf>, days: u32) -> Result<()> {
         let row = row?;
         let block = Block {
             id: crate::commands::new_id(),
-            atuin_id: Some(row.id.clone()),
             session: row.session,
             hostname: row.hostname.or_else(|| util::resolved_hostname(&config)),
             shell: row.shell,

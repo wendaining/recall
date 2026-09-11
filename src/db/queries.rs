@@ -8,7 +8,7 @@ use crate::model::{Block, BlockKind};
 /// Maximum number of plain-text output bytes kept in the searchable projection.
 const SEARCH_PROJECTION_BYTES: usize = 64 * 1024;
 
-const COLUMNS: &str = "id, atuin_id, session, hostname, shell, command, cwd, \
+const COLUMNS: &str = "id, session, hostname, shell, command, cwd, \
      started_at, duration_ns, exit_code, output, output_codec, output_text, \
      output_bytes, output_lines, output_truncated, kind, created_at";
 
@@ -31,7 +31,6 @@ fn row_to_block(row: &Row<'_>, full_output: bool) -> rusqlite::Result<Block> {
 
     Ok(Block {
         id: row.get("id")?,
-        atuin_id: row.get("atuin_id")?,
         session: row.get("session")?,
         hostname: row.get("hostname")?,
         shell: row.get("shell")?,
@@ -94,13 +93,12 @@ fn insert_block(conn: &Connection, block: &Block) -> Result<()> {
     };
 
     conn.execute(
-        "INSERT INTO blocks (id, atuin_id, session, hostname, shell, command, cwd,
+        "INSERT INTO blocks (id, session, hostname, shell, command, cwd,
             started_at, duration_ns, exit_code, output, output_codec, output_text,
             output_bytes, output_lines, output_truncated, kind, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
         params![
             block.id,
-            block.atuin_id,
             block.session,
             block.hostname,
             block.shell,

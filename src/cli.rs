@@ -85,8 +85,6 @@ pub struct RecordArgs {
     #[arg(long)]
     pub cwd: Option<String>,
     #[arg(long)]
-    pub atuin_id: Option<String>,
-    #[arg(long)]
     pub session: Option<String>,
     /// Shell name recorded with the block.
     #[arg(long)]

@@ -1,7 +1,7 @@
 //! Best-effort secret detection for captured commands and output.
 //!
-//! The patterns mirror the defaults used by atuin. This is a safety net, not a
-//! guarantee: it only prevents obviously sensitive values from being persisted.
+//! This is a safety net, not a guarantee: it only prevents obviously sensitive
+//! values from being persisted.
 
 use std::sync::OnceLock;
 

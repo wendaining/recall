@@ -73,7 +73,6 @@ impl FromStr for BlockKind {
 #[derive(Debug, Clone, Default)]
 pub struct Block {
     pub id: String,
-    pub atuin_id: Option<String>,
     pub session: Option<String>,
     pub hostname: Option<String>,
     pub shell: Option<String>,

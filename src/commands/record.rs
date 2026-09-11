@@ -15,7 +15,6 @@ pub fn run(args: RecordArgs) -> Result<()> {
 
     let block = Block {
         id: crate::commands::new_id(),
-        atuin_id: args.atuin_id,
         session: args
             .session
             .or_else(|| std::env::var("RECALL_SESSION").ok()),
