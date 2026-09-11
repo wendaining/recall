@@ -10,6 +10,8 @@
 TUI 中浏览这些历史——每次执行都是一个独立的 *block*。它不改动你的终端模拟器，
 也不重新实现一个：它是一个 shell 侧工具，通过 PTY 透明地代理你的 shell。
 
+<img zoom="35%" alt="recall-display" src="https://github.com/user-attachments/assets/835ef068-b4d9-41e2-b5a6-738d5d58f01f" />
+
 ## 安装
 
 ### 一行安装（推荐）
@@ -32,8 +34,6 @@ install -Dm755 target/release/recall ~/.local/bin/recall
 ```
 
 确保 `~/.local/bin` 在 `PATH` 中。
-
-<img zoom="35%" alt="recall-display" src="https://github.com/user-attachments/assets/835ef068-b4d9-41e2-b5a6-738d5d58f01f" />
 
 ## 特性
 
