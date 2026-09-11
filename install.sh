@@ -204,10 +204,11 @@ if [ -n "$profile_path" ]; then
                 fi
                 if [ "$auto_proxy" -eq 1 ]; then
                     if [ "$shell_name" = zsh ]; then
-                        printf 'if [[ -o interactive && -z ${RECALL_PROXY_ACTIVE:-} ]]; then\n'
+                        printf 'if [[ -o interactive && -z ${RECALL_PROXY_ACTIVE:-} && -z ${RECALL_AUTO_LAUNCH:-} ]]; then\n'
                     else
-                        printf 'if [[ $- == *i* && -z ${RECALL_PROXY_ACTIVE:-} ]]; then\n'
+                        printf 'if [[ $- == *i* && -z ${RECALL_PROXY_ACTIVE:-} && -z ${RECALL_AUTO_LAUNCH:-} ]]; then\n'
                     fi
+                    printf '  export RECALL_AUTO_LAUNCH=1\n'
                     printf '  exec recall shell\n'
                     printf 'fi\n'
                 fi
@@ -219,7 +220,8 @@ if [ -n "$profile_path" ]; then
                     printf 'command recall init fish | source\n'
                 fi
                 if [ "$auto_proxy" -eq 1 ]; then
-                    printf 'if status is-interactive; and not set -q RECALL_PROXY_ACTIVE\n'
+                    printf 'if status is-interactive; and not set -q RECALL_PROXY_ACTIVE; and not set -q RECALL_AUTO_LAUNCH\n'
+                    printf '    set -gx RECALL_AUTO_LAUNCH 1\n'
                     printf '    exec recall shell\n'
                     printf 'end\n'
                 fi
