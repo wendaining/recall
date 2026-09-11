@@ -210,6 +210,9 @@ and tools such as Homebrew are initialized. Use `--no-login` or set
 directory to the child `PATH`, so the `recall init` hooks keep working even when
 a terminal launches `recall shell` before your profile is loaded. If a session
 produces output but no command markers, the proxy prints a hint when it exits.
+Background database errors are written to `recall-errors.log` beside the recall
+database instead of being injected into the interactive terminal. Run
+`recall doctor` to see the exact database and error-log paths.
 
 On Windows the proxy runs the shell under ConPTY. When neither `proxy.shell` nor
 `--shell` is set, it detects the shell you launched `recall shell` from (walking
