@@ -530,7 +530,7 @@ mod tests {
 
     #[test]
     fn reads_cell_and_pixel_dimensions_from_pty() {
-        let expected = libc::winsize {
+        let mut expected = libc::winsize {
             ws_row: 42,
             ws_col: 132,
             ws_xpixel: 1584,
@@ -538,6 +538,7 @@ mod tests {
         };
         let mut master_fd = -1;
         let mut slave_fd = -1;
+        let expected_ptr = std::ptr::from_mut(&mut expected);
         // SAFETY: all output pointers are valid, and `expected` is fully initialized.
         let result = unsafe {
             libc::openpty(
@@ -545,7 +546,7 @@ mod tests {
                 &mut slave_fd,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
-                &expected,
+                expected_ptr,
             )
         };
         assert_eq!(result, 0);
