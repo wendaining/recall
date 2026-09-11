@@ -152,6 +152,15 @@ recall uuid
 
 ## Configuration
 
+> [!IMPORTANT]
+>
+> Review your configuration before enabling the proxy. It controls where the
+> database is stored, which command output is recorded, secrets filtering,
+> retention, and clipboard behavior. The defaults work out of the box, but a
+> deliberate configuration helps avoid retaining noisy or sensitive output.
+> Use `recall config path`, `recall config show`, and `recall config default`
+> to locate the file, inspect the active settings, and view a complete template.
+
 `~/.config/recall/config.toml` (all fields optional; `recall config default`
 prints a full example). `RECALL_CONFIG` overrides the path.
 

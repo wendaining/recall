@@ -138,6 +138,14 @@ recall uuid
 
 ## 配置
 
+> [!IMPORTANT]
+>
+> 启用代理前，请务必检查配置文件。它直接决定数据库的存储位置、哪些命令输出会被
+> 记录、密钥过滤、数据保留期限和剪贴板行为。默认配置可以直接运行，但主动配置能
+> 避免长期保存大量无用输出或敏感内容。可使用 `recall config path`、
+> `recall config show` 和 `recall config default` 分别查看配置路径、当前生效配置和
+> 完整配置模板。
+
 `~/.config/recall/config.toml`（所有字段均可选；`recall config default`
 会打印完整示例）。`RECALL_CONFIG` 可覆盖路径。
 
