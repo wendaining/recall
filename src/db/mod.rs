@@ -1,7 +1,7 @@
 pub mod queries;
 pub mod schema;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use rusqlite::Connection;
@@ -9,6 +9,14 @@ use rusqlite::Connection;
 /// Thin wrapper around a SQLite connection to the recall database.
 pub struct Db {
     pub conn: Connection,
+}
+
+/// Diagnostic log written beside the database by background capture.
+pub fn error_log_path(db_path: &Path) -> PathBuf {
+    db_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("recall-errors.log")
 }
 
 impl Db {

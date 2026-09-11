@@ -1,4 +1,5 @@
 use std::ffi::{OsStr, OsString};
+use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -15,7 +16,7 @@ use crate::capture::marker::{Feed, MarkerFilter, Op};
 use crate::capture::protocol::Request;
 use crate::capture::secrets;
 use crate::config::Config;
-use crate::db::{Db, queries};
+use crate::db::{self, Db, queries};
 use crate::model::{Block, BlockKind};
 use crate::platform;
 use crate::util;
@@ -392,7 +393,7 @@ fn spawn_writer(rx: Receiver<WriterMessage>, db_path: PathBuf) -> thread::JoinHa
         let db = match retry_on_busy(|| Db::open(&db_path), thread::sleep) {
             Ok(db) => db,
             Err(err) => {
-                util::eprintln_flush(&format!("recall: cannot open database: {err}"));
+                log_writer_error(&db_path, "cannot open database", &err);
                 return;
             }
         };
@@ -402,13 +403,29 @@ fn spawn_writer(rx: Receiver<WriterMessage>, db_path: PathBuf) -> thread::JoinHa
                     if let Err(err) =
                         retry_on_busy(|| queries::insert(&db.conn, &block), thread::sleep)
                     {
-                        util::eprintln_flush(&format!("recall: insert failed: {err}"));
+                        log_writer_error(&db_path, "insert failed", &err);
                     }
                 }
                 WriterMessage::Shutdown => break,
             }
         }
     })
+}
+
+fn log_writer_error(db_path: &Path, action: &str, err: &anyhow::Error) {
+    let path = db::error_log_path(db_path);
+    let result = (|| -> std::io::Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+        writeln!(
+            file,
+            "{} recall: {action}: {err:#}",
+            chrono::Utc::now().to_rfc3339()
+        )
+    })();
+    let _ = result;
 }
 
 fn retry_on_busy<T>(
@@ -438,6 +455,7 @@ fn is_busy_or_locked(err: &anyhow::Error) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::Context;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_db_path() -> PathBuf {
@@ -492,6 +510,20 @@ mod tests {
 
         assert_eq!(attempts, 1);
         assert_eq!(err.to_string(), "permanent failure");
+    }
+
+    #[test]
+    fn writer_errors_are_logged_with_the_full_cause_chain() {
+        let db_path = temp_db_path();
+        let err = Err::<(), _>(anyhow::anyhow!("database is locked"))
+            .context("inserting block")
+            .unwrap_err();
+
+        log_writer_error(&db_path, "insert failed", &err);
+
+        let log = std::fs::read_to_string(db::error_log_path(&db_path)).unwrap();
+        assert!(log.contains("recall: insert failed: inserting block: database is locked"));
+        std::fs::remove_dir_all(db_path.parent().unwrap()).unwrap();
     }
 
     #[test]

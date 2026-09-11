@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use crate::config::Config;
-use crate::db::{Db, queries, schema};
+use crate::db::{self, Db, queries, schema};
 use crate::shell::Shell;
 use crate::util;
 
@@ -29,6 +29,7 @@ pub fn run() -> Result<()> {
 fn check_recall_db(cfg: &Config) -> Result<()> {
     let path = &cfg.general.db_path;
     println!("[recall db] {}", path.display());
+    println!("  error log: {}", db::error_log_path(path).display());
     match Db::open(path) {
         Ok(db) => {
             let count = queries::count(&db.conn).unwrap_or(-1);
