@@ -3,13 +3,18 @@
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 
 #[test]
 fn conpty_forwards_special_keys_and_exits_cleanly() {
-    let test_dir = std::env::temp_dir().join(format!("recall-conpty-{}", std::process::id()));
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let test_dir =
+        std::env::temp_dir().join(format!("recall-conpty-{}-{nonce}", std::process::id()));
     std::fs::create_dir_all(&test_dir).unwrap();
     let config_path = test_dir.join("config.toml");
     let db_path = test_dir.join("recall.db");
@@ -67,13 +72,20 @@ fn conpty_forwards_special_keys_and_exits_cleanly() {
         }
     });
 
-    write_input(&writer, b"Write-Output ('__RECALL_CONPTY_' + 'KEY__')\r");
+    require_occurrences(&output, "PS ", 1, &mut child);
+
+    write_input(
+        &writer,
+        b"function global:prompt { '__RECALL_' + 'READY__ ' }; Write-Output ('__RECALL_CONPTY_' + 'KEY__')\r",
+    );
     require_occurrences(&output, "__RECALL_CONPTY_KEY__", 1, &mut child);
+    require_occurrences(&output, "__RECALL_READY__", 1, &mut child);
 
     // PowerShell enables win32-input-mode through the proxied output, so a
     // terminal encodes Up Arrow as key-down/up INPUT_RECORD sequences.
     write_input(&writer, b"\x1b[38;72;0;1;256;1_\x1b[38;72;0;0;256;1_\r");
     require_occurrences(&output, "__RECALL_CONPTY_KEY__", 2, &mut child);
+    require_occurrences(&output, "__RECALL_READY__", 2, &mut child);
 
     write_input(&writer, b"exit\r");
 
@@ -107,7 +119,7 @@ fn require_occurrences(
     expected: usize,
     child: &mut Box<dyn portable_pty::Child + Send + Sync>,
 ) {
-    let deadline = Instant::now() + Duration::from_secs(20);
+    let deadline = Instant::now() + Duration::from_secs(10);
     while Instant::now() < deadline {
         if output_text(output).matches(needle).count() >= expected {
             return;
