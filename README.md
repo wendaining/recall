@@ -115,6 +115,29 @@ inserts the selected command into your prompt. Override the key with
 Without the proxy, recall still records command metadata in the background. To
 capture output, run your shell under the proxy.
 
+#### macOS: the Option key
+
+Mac keyboards have no `Alt`; the equivalent is `Option` (`⌥`). By default most
+macOS terminals treat `Option` as a compose key, so `Option+R` types `®` instead
+of sending `Meta-R`, and the widget never opens. Enable Option-as-Meta in your
+terminal:
+
+| Terminal | Setting |
+| --- | --- |
+| Terminal.app | Settings → Profiles → Keyboard → *Use Option as Meta key* |
+| iTerm2 | Preferences → Profiles → Keys → *Left Option Key: Esc+* |
+| Ghostty | `macos-option-as-alt = true` |
+
+Alternatively bind another key with `RECALL_KEY` before the integration is
+loaded (for example `^R` if you do not use atuin, or `^T`):
+
+```zsh
+# ~/.zshrc (before `eval "$(recall init zsh)"`)
+export RECALL_KEY='^R'
+```
+
+Run `recall doctor` to confirm the shell integration and `PATH`.
+
 ### 2. Enable output capture with the PTY proxy
 
 The one-line installer offers two setup methods. Configuring your terminal
@@ -141,6 +164,13 @@ shell /home/you/.local/bin/recall shell
 
 `recall shell` falls back to a plain shell if the terminal is not a TTY, if
 `RECALL_PROXY=0` is set, or if the proxy fails to start.
+
+On macOS the proxy starts the shell as a login shell (`zsh -l`) so `~/.zprofile`
+and tools such as Homebrew are initialized. Use `--no-login` or set
+`proxy.login_shell = false` to opt out. The proxy also prepends its own
+directory to the child `PATH`, so the `recall init` hooks keep working even when
+a terminal launches `recall shell` before your profile is loaded. If a session
+produces output but no command markers, the proxy prints a hint when it exits.
 
 ### 3. Import existing atuin history (optional)
 
@@ -207,6 +237,7 @@ max_output_bytes = 1048576   # per-command output cap (before compression)
 strip_ansi = true
 
 [proxy]
+login_shell = true           # spawn the shell with -l (default: true on macOS)
 exclude_output = ["^docker logs", "^ffmpeg", "^tail -f"] # keep metadata, skip output
 mark_interactive = true      # skip output of full-screen programs
 secrets_filter = true

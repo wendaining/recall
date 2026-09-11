@@ -99,6 +99,28 @@ recall init fish | source
 这会安装捕获钩子，以及一个 **Alt+R** 组件：打开 TUI 并把选中的命令插入到提示符。
 zsh 下可用 `RECALL_KEY` 覆盖按键，bash/fish 下可自行重新绑定。
 
+#### macOS 的 Option 键
+
+Mac 键盘没有 `Alt`，对应的是 `Option`（`⌥`）。默认情况下多数 macOS 终端把
+`Option` 当作组合键，`Option+R` 会输入 `®` 而不是发送 `Meta-R`，组件无法打开。
+在终端里把 Option 设为 Meta：
+
+| 终端 | 设置项 |
+| --- | --- |
+| Terminal.app | 设置 → 描述文件 → 键盘 → *将 Option 键用作 Meta 键* |
+| iTerm2 | Preferences → Profiles → Keys → *Left Option Key: Esc+* |
+| Ghostty | `macos-option-as-alt = true` |
+
+也可以用 `RECALL_KEY` 换成别的按键（例如不使用 atuin 时用 `^R`，或 `^T`），
+需要写在加载集成之前：
+
+```zsh
+# ~/.zshrc（在 `eval "$(recall init zsh)"` 之前）
+export RECALL_KEY='^R'
+```
+
+运行 `recall doctor` 可确认 shell 集成和 `PATH` 状态。
+
 未使用代理时，recall 仍会在后台记录命令元数据。要捕获输出，需要让 shell 运行在
 代理之下。
 
@@ -124,6 +146,12 @@ shell /home/you/.local/bin/recall shell
 
 如果终端不是 TTY、设置了 `RECALL_PROXY=0`，或代理启动失败，`recall shell`
 会回退到普通 shell。
+
+macOS 上代理会以登录 shell 启动（`zsh -l`），从而加载 `~/.zprofile` 和
+Homebrew 等初始化。可用 `--no-login` 或 `proxy.login_shell = false` 关闭。代理
+还会把自身所在目录加到子进程 `PATH` 最前面，所以即使终端在 profile 加载前就
+启动了 `recall shell`，`recall init` 钩子也能正常工作。如果会话产生了输出却没有
+任何命令标记，代理会在退出时给出提示。
 
 ### 3. 导入已有 atuin 历史（可选）
 
@@ -185,6 +213,7 @@ max_output_bytes = 1048576   # 单条命令输出上限（压缩前）
 strip_ansi = true
 
 [proxy]
+login_shell = true           # 以 -l 启动 shell（macOS 默认开启）
 mark_interactive = true      # 跳过全屏程序的输出
 secrets_filter = true
 
