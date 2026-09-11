@@ -108,6 +108,15 @@ pub enum ImportSource {
         #[arg(long, default_value_t = 0)]
         days: u32,
     },
+    /// Import commands from a standard shell history file.
+    History {
+        /// History format to parse.
+        #[arg(value_parser = crate::shell::parse_history_name)]
+        shell: String,
+        /// History file path (defaults to the shell's standard location).
+        #[arg(long)]
+        path: Option<std::path::PathBuf>,
+    },
 }
 
 #[derive(Debug, Args)]

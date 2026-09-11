@@ -9,9 +9,12 @@ use crate::db::{Db, queries};
 use crate::model::{Block, BlockKind};
 use crate::util;
 
+mod history;
+
 pub fn run(args: ImportArgs) -> Result<()> {
     match args.source {
         ImportSource::Atuin { path, days } => import_atuin(path, days),
+        ImportSource::History { shell, path } => history::run(shell, path),
     }
 }
 
