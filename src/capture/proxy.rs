@@ -510,9 +510,11 @@ impl Drop for RawModeGuard {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use std::fs::File;
+    #[cfg(unix)]
     use std::os::fd::{AsRawFd, FromRawFd};
 
     use super::*;
@@ -610,6 +612,58 @@ mod tests {
         assert!(!should_warn(0, 0));
     }
 
+    #[test]
+    fn captures_a_start_end_stream_with_crlf_output() {
+        let config = Config::default();
+        let (tx, rx) = mpsc::channel();
+        let shared = Arc::new(Shared {
+            state: Mutex::new(CaptureState::default()),
+            config: Arc::new(config.clone()),
+            session: "session-1".to_string(),
+            shell: "pwsh".to_string(),
+            hostname: None,
+            exclude: build_exclude(&config.proxy.exclude),
+            exclude_output: build_exclude(&config.proxy.exclude_output),
+            tx,
+            pending: AtomicUsize::new(0),
+            markers_seen: AtomicUsize::new(0),
+            input_bytes: AtomicUsize::new(0),
+        });
+
+        let mut stream = Vec::new();
+        stream.extend_from_slice(
+            b"\x1b]9999;{\"type\":\"start\",\"id\":\"b1\",\"command\":\"echo hi\",\"cwd\":\"C:/tmp\",\"started_at\":42}\x07",
+        );
+        stream.extend_from_slice(b"hi\r\nthere\r\n");
+        stream.extend_from_slice(
+            b"\x1b]9999;{\"type\":\"end\",\"id\":\"b1\",\"exit\":0,\"duration_ns\":7}\x07",
+        );
+
+        let mut filter = MarkerFilter::new();
+        match filter.feed(&stream) {
+            Feed::Plain(bytes) => capture(&shared, bytes),
+            Feed::Ops(ops) => {
+                for op in ops {
+                    match op {
+                        Op::Bytes(bytes) => capture(&shared, &bytes),
+                        Op::Event(event) => apply_event(&shared, event),
+                    }
+                }
+            }
+        }
+
+        let block = rx.recv().unwrap();
+        assert_eq!(block.command, "echo hi");
+        assert_eq!(block.cwd.as_deref(), Some("C:/tmp"));
+        assert_eq!(block.started_at, 42);
+        assert_eq!(block.exit_code, Some(0));
+        assert_eq!(block.duration_ns, Some(7));
+        assert_eq!(block.shell.as_deref(), Some("pwsh"));
+        // The ANSI stripper normalizes the CRLF line endings ConPTY emits.
+        assert_eq!(block.output.as_deref(), Some(b"hi\nthere".as_slice()));
+    }
+
+    #[cfg(unix)]
     #[test]
     fn reads_cell_and_pixel_dimensions_from_pty() {
         let mut expected = libc::winsize {
