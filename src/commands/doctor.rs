@@ -21,6 +21,8 @@ pub fn run() -> Result<()> {
     check_recall_db(&cfg)?;
     check_atuin_db(&cfg);
     check_clipboard(&cfg);
+    check_shell_integration(&cfg);
+    check_macos_option_key();
 
     Ok(())
 }
@@ -85,3 +87,65 @@ fn check_clipboard(cfg: &Config) {
             .unwrap_or_else(|_| "no display".into())
     );
 }
+
+fn check_shell_integration(cfg: &Config) {
+    println!("[shell integration]");
+    match std::env::current_exe() {
+        Ok(exe) => println!("  binary:  {}", exe.display()),
+        Err(err) => println!("  binary:  ERROR: {err}"),
+    }
+    println!(
+        "  on PATH: {}",
+        if util::command_exists("recall") {
+            "yes"
+        } else {
+            "no (the proxied shell cannot run `recall`)"
+        }
+    );
+
+    let shell = util::login_shell();
+    match util::shell_rc_path(&shell) {
+        Some(path) => {
+            let configured = std::fs::read_to_string(&path)
+                .map(|text| text.contains("recall init"))
+                .unwrap_or(false);
+            println!(
+                "  rc file: {} ({})",
+                path.display(),
+                if configured {
+                    "recall init found"
+                } else {
+                    "recall init NOT found"
+                }
+            );
+        }
+        None => println!("  rc file: unknown shell {shell}"),
+    }
+
+    println!(
+        "  proxy:   {}",
+        if std::env::var_os("RECALL_PROXY_ACTIVE").is_some() {
+            "active"
+        } else {
+            "not active; run `recall shell` to capture output"
+        }
+    );
+    println!(
+        "  login:   {}",
+        if cfg.proxy.login_shell {
+            "enabled (-l)"
+        } else {
+            "disabled"
+        }
+    );
+}
+
+#[cfg(target_os = "macos")]
+fn check_macos_option_key() {
+    println!("[macOS Option key]");
+    println!("  Alt+R sends Option+R. If it inserts '®', enable \"Use Option as Meta key\"");
+    println!("  in your terminal (Terminal.app, iTerm2, Ghostty), or set RECALL_KEY.");
+}
+
+#[cfg(not(target_os = "macos"))]
+fn check_macos_option_key() {}
