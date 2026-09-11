@@ -1,5 +1,4 @@
 use anyhow::Result;
-use rusqlite::{Connection, OpenFlags};
 
 use crate::config::Config;
 use crate::db::{Db, queries, schema};
@@ -20,7 +19,6 @@ pub fn run() -> Result<()> {
     println!();
 
     check_recall_db(&cfg)?;
-    check_atuin_db(&cfg);
     check_clipboard(&cfg);
     check_shell_integration(&cfg);
     check_macos_option_key();
@@ -46,24 +44,6 @@ fn check_recall_db(cfg: &Config) -> Result<()> {
         Err(err) => println!("  ERROR: {err}"),
     }
     Ok(())
-}
-
-fn check_atuin_db(cfg: &Config) {
-    let path = &cfg.general.atuin_db_path;
-    println!("[atuin db]  {}", path.display());
-    if !path.exists() {
-        println!("  not found (import/linking disabled)");
-        return;
-    }
-    match Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY) {
-        Ok(conn) => {
-            match conn.query_row("SELECT COUNT(*) FROM history", [], |r| r.get::<_, i64>(0)) {
-                Ok(count) => println!("  ok: {count} history row(s)"),
-                Err(err) => println!("  cannot read history table: {err}"),
-            }
-        }
-        Err(err) => println!("  cannot open: {err}"),
-    }
 }
 
 fn check_clipboard(cfg: &Config) {

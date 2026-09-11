@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use rusqlite::{Connection, OpenFlags};
@@ -11,15 +12,15 @@ use crate::util;
 
 pub fn run(args: ImportArgs) -> Result<()> {
     match args.source {
-        ImportSource::Atuin { days } => import_atuin(days),
+        ImportSource::Atuin { path, days } => import_atuin(path, days),
     }
 }
 
 /// Backfill metadata (no output) from atuin's plaintext history database.
 /// Existing `atuin_id`s are skipped so re-running is safe.
-fn import_atuin(days: u32) -> Result<()> {
+fn import_atuin(path: Option<PathBuf>, days: u32) -> Result<()> {
     let config = Config::load()?;
-    let atuin_path = &config.general.atuin_db_path;
+    let atuin_path = path.unwrap_or_else(default_atuin_db_path);
     if !atuin_path.exists() {
         bail!("atuin database not found at {}", atuin_path.display());
     }
@@ -27,7 +28,7 @@ fn import_atuin(days: u32) -> Result<()> {
     let db = Db::open(&config.general.db_path)?;
     let existing = existing_atuin_ids(&db)?;
 
-    let atuin = Connection::open_with_flags(atuin_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+    let atuin = Connection::open_with_flags(&atuin_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .with_context(|| format!("opening atuin database {}", atuin_path.display()))?;
 
     let cutoff = if days == 0 {
@@ -92,6 +93,22 @@ fn import_atuin(days: u32) -> Result<()> {
     Ok(())
 }
 
+fn default_atuin_db_path() -> PathBuf {
+    atuin_data_dir(
+        std::env::var_os("XDG_DATA_HOME").map(PathBuf::from),
+        dirs::home_dir(),
+    )
+    .join("history.db")
+}
+
+fn atuin_data_dir(xdg_data_home: Option<PathBuf>, home: Option<PathBuf>) -> PathBuf {
+    xdg_data_home
+        .filter(|path| path.is_absolute())
+        .or_else(|| home.map(|home| home.join(".local").join("share")))
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("atuin")
+}
+
 struct AtuinRow {
     id: String,
     timestamp: i64,
@@ -114,4 +131,34 @@ fn existing_atuin_ids(db: &Db) -> Result<HashSet<String>> {
         ids.insert(id?);
     }
     Ok(ids)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+
+    #[test]
+    fn resolves_optional_importer_default_path() {
+        let home = Path::new("home-base");
+
+        assert_eq!(
+            atuin_data_dir(None, Some(home.to_path_buf())),
+            home.join(".local").join("share").join("atuin")
+        );
+        assert_eq!(
+            atuin_data_dir(Some(PathBuf::from("relative")), Some(home.to_path_buf())),
+            home.join(".local").join("share").join("atuin")
+        );
+        let xdg = if cfg!(windows) {
+            PathBuf::from(r"C:\xdg")
+        } else {
+            PathBuf::from("/xdg")
+        };
+        assert_eq!(
+            atuin_data_dir(Some(xdg.clone()), Some(home.to_path_buf())),
+            xdg.join("atuin")
+        );
+    }
 }

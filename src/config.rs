@@ -21,8 +21,6 @@ pub struct Config {
 pub struct General {
     /// Path to the recall SQLite database.
     pub db_path: PathBuf,
-    /// Path to atuin's history database (used for import / linking).
-    pub atuin_db_path: PathBuf,
     /// Maximum uncompressed bytes stored per command output.
     pub max_output_bytes: usize,
     /// Strip ANSI escape sequences before storing output.
@@ -86,7 +84,6 @@ impl Default for General {
     fn default() -> Self {
         Self {
             db_path: default_data_dir().join("recall.db"),
-            atuin_db_path: default_atuin_db_path(),
             max_output_bytes: 1024 * 1024,
             strip_ansi: true,
             hostname: None,
@@ -99,7 +96,7 @@ impl Default for Proxy {
         Self {
             shell: String::new(),
             login_shell: cfg!(target_os = "macos"),
-            exclude: vec![r"^\s*recall\b".to_string(), r"^\s*atuin\b".to_string()],
+            exclude: vec![r"^\s*recall\b".to_string()],
             exclude_output: Vec::new(),
             mark_interactive: true,
             secrets_filter: true,
@@ -170,26 +167,6 @@ pub fn default_data_dir() -> PathBuf {
         .join("recall")
 }
 
-/// Atuin's data directory, mirroring `atuin_common::utils::data_dir`: an absolute
-/// `XDG_DATA_HOME` if set, otherwise `~/.local/share`, on every platform. Atuin
-/// uses this layout on Windows and macOS too, so `dirs::data_dir()` would point
-/// at the wrong place there.
-pub fn default_atuin_db_path() -> PathBuf {
-    atuin_data_dir(
-        std::env::var_os("XDG_DATA_HOME").map(PathBuf::from),
-        dirs::home_dir(),
-    )
-    .join("history.db")
-}
-
-fn atuin_data_dir(xdg_data_home: Option<PathBuf>, home: Option<PathBuf>) -> PathBuf {
-    xdg_data_home
-        .filter(|path| path.is_absolute())
-        .or_else(|| home.map(|home| home.join(".local").join("share")))
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("atuin")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -213,31 +190,6 @@ mod tests {
     #[test]
     fn login_shell_default_matches_platform() {
         assert_eq!(Proxy::default().login_shell, cfg!(target_os = "macos"));
-    }
-
-    #[test]
-    fn atuin_data_dir_matches_atuin_layout() {
-        let home = Path::new("home-base");
-
-        assert_eq!(
-            atuin_data_dir(None, Some(home.to_path_buf())),
-            home.join(".local").join("share").join("atuin")
-        );
-        // A relative XDG_DATA_HOME is ignored, matching atuin's absolute-path rule.
-        assert_eq!(
-            atuin_data_dir(Some(PathBuf::from("relative")), Some(home.to_path_buf())),
-            home.join(".local").join("share").join("atuin")
-        );
-        // An absolute XDG_DATA_HOME wins; build one for the host platform.
-        let xdg = if cfg!(windows) {
-            PathBuf::from(r"C:\xdg")
-        } else {
-            PathBuf::from("/xdg")
-        };
-        assert_eq!(
-            atuin_data_dir(Some(xdg.clone()), Some(home.to_path_buf())),
-            xdg.join("atuin")
-        );
     }
 
     #[test]
