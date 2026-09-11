@@ -52,7 +52,7 @@ end
 function __recall_should_skip
     set -l cmd "$argv[1]"
     test -z (string trim -- "$cmd"); and return 0
-    string match -qr '^\s*(recall|atuin)(\s|$)' -- "$cmd"; and return 0
+    string match -qr '^\s*recall(\s|$)' -- "$cmd"; and return 0
     return 1
 end
 

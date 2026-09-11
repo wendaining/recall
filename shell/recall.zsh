@@ -54,7 +54,7 @@ _recall_json_escape() {
 _recall_should_skip() {
   local cmd=$1
   [[ -z ${cmd//[[:space:]]/} ]] && return 0
-  [[ $cmd =~ '^[[:space:]]*(recall|atuin)([[:space:]]|$)' ]] && return 0
+  [[ $cmd =~ '^[[:space:]]*recall([[:space:]]|$)' ]] && return 0
   return 1
 }
 
