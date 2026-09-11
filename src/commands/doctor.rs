@@ -67,25 +67,49 @@ fn check_atuin_db(cfg: &Config) {
 
 fn check_clipboard(cfg: &Config) {
     println!("[clipboard] configured backend: {}", cfg.clipboard.backend);
-    for tool in ["wl-copy", "xclip", "xsel"] {
+    #[cfg(unix)]
+    {
+        for tool in ["wl-copy", "xclip", "xsel", "pbcopy"] {
+            println!(
+                "  {tool:<8} {}",
+                if util::command_exists(tool) {
+                    "found"
+                } else {
+                    "missing"
+                }
+            );
+        }
+        println!("  arboard   built-in (native)");
+        println!("  osc52     always available inside a supporting terminal");
         println!(
-            "  {tool:<8} {}",
-            if util::command_exists(tool) {
+            "  session:  {} / {}",
+            std::env::var("XDG_SESSION_TYPE").unwrap_or_else(|_| "?".into()),
+            std::env::var("WAYLAND_DISPLAY")
+                .or_else(|_| std::env::var("DISPLAY"))
+                .unwrap_or_else(|_| "no display".into())
+        );
+    }
+    #[cfg(windows)]
+    {
+        println!(
+            "  clip      {}",
+            if util::command_exists("clip") {
                 "found"
             } else {
                 "missing"
             }
         );
+        println!("  arboard   built-in (native)");
+        println!("  osc52     always available inside a supporting terminal");
+        println!(
+            "  host:     {}",
+            if std::env::var_os("WT_SESSION").is_some() {
+                "Windows Terminal"
+            } else {
+                "console host"
+            }
+        );
     }
-    println!("  arboard   built-in (native)");
-    println!("  osc52     always available inside a supporting terminal");
-    println!(
-        "  session:  {} / {}",
-        std::env::var("XDG_SESSION_TYPE").unwrap_or_else(|_| "?".into()),
-        std::env::var("WAYLAND_DISPLAY")
-            .or_else(|_| std::env::var("DISPLAY"))
-            .unwrap_or_else(|_| "no display".into())
-    );
 }
 
 fn check_shell_integration(cfg: &Config) {
@@ -132,10 +156,14 @@ fn check_shell_integration(cfg: &Config) {
     );
     println!(
         "  login:   {}",
-        if cfg.proxy.login_shell {
-            "enabled (-l)"
+        if cfg!(unix) {
+            if cfg.proxy.login_shell {
+                "enabled (-l)"
+            } else {
+                "disabled"
+            }
         } else {
-            "disabled"
+            "n/a on Windows"
         }
     );
 }
