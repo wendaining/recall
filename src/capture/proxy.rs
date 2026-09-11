@@ -71,7 +71,7 @@ struct Shared {
 }
 
 /// Run the PTY proxy until the child shell exits. Returns the child exit code.
-pub fn run(config: Arc<Config>, shell: String) -> Result<i32> {
+pub fn run(config: Arc<Config>, shell: String, login: bool) -> Result<i32> {
     let session = std::env::var("RECALL_SESSION")
         .ok()
         .filter(|s| !s.is_empty())
@@ -107,6 +107,9 @@ pub fn run(config: Arc<Config>, shell: String) -> Result<i32> {
     }))?;
 
     let mut cmd = CommandBuilder::new(&shell);
+    if login {
+        cmd.arg("-l");
+    }
     cmd.env("RECALL_PROXY_ACTIVE", "1");
     cmd.env("RECALL_SESSION", &session);
     if let Some(path) = recall_path() {

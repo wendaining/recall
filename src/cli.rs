@@ -46,6 +46,12 @@ pub struct ShellArgs {
     /// Disable the proxy and run a plain shell.
     #[arg(long)]
     pub no_proxy: bool,
+    /// Spawn the shell as a login shell (`-l`).
+    #[arg(long, overrides_with = "no_login")]
+    pub login: bool,
+    /// Spawn the shell as a non-login shell, overriding the config.
+    #[arg(long, overrides_with = "login")]
+    pub no_login: bool,
     /// Shell binary to run (defaults to the login shell).
     #[arg(long)]
     pub shell: Option<String>,

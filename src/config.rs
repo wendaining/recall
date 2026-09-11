@@ -36,6 +36,8 @@ pub struct General {
 pub struct Proxy {
     /// Shell to spawn under the proxy. Empty means the login shell.
     pub shell: String,
+    /// Spawn the shell as a login shell (`-l`). Defaults to true on macOS.
+    pub login_shell: bool,
     /// Commands matching any of these regexes are not recorded.
     pub exclude: Vec<String>,
     /// Commands matching any of these regexes are recorded without output.
@@ -89,6 +91,7 @@ impl Default for Proxy {
     fn default() -> Self {
         Self {
             shell: String::new(),
+            login_shell: cfg!(target_os = "macos"),
             exclude: vec![r"^\s*recall\b".to_string(), r"^\s*atuin\b".to_string()],
             exclude_output: Vec::new(),
             mark_interactive: true,
@@ -183,5 +186,10 @@ mod tests {
             config.proxy.exclude_output,
             ["^docker logs".to_string(), "^tail -f".to_string()]
         );
+    }
+
+    #[test]
+    fn login_shell_default_matches_platform() {
+        assert_eq!(Proxy::default().login_shell, cfg!(target_os = "macos"));
     }
 }
