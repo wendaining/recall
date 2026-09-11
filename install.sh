@@ -141,6 +141,34 @@ escape_double_quotes() {
     sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\$/\\$/g' -e 's/`/\\`/g'
 }
 
+set_search_key() {
+    file=$1
+    key=$2
+    awk -v key="$key" '
+        BEGIN { done = 0; in_ui = 0; seen_ui = 0 }
+        /^\[ui\][[:space:]]*$/ {
+            in_ui = 1; seen_ui = 1
+            print
+            next
+        }
+        /^\[/ {
+            if (in_ui && !done) { print "search_key = \"" key "\""; done = 1 }
+            in_ui = 0
+        }
+        in_ui && /^[[:space:]]*search_key[[:space:]]*=/ {
+            if (!done) { print "search_key = \"" key "\""; done = 1 }
+            next
+        }
+        { print }
+        END {
+            if (in_ui && !done) { print "search_key = \"" key "\""; done = 1 }
+            if (!seen_ui) { print ""; print "[ui]"; print "search_key = \"" key "\"" }
+        }
+    ' "$file" > "$temp_dir/config.new" \
+        || die "failed to update the search key in $file"
+    cat "$temp_dir/config.new" > "$file"
+}
+
 choose_proxy_setup() {
     case "${RECALL_PROXY_SETUP:-}" in
         terminal | shell | none)
@@ -178,8 +206,39 @@ choose_proxy_setup() {
     esac
 }
 
+choose_search_key() {
+    search_key=""
+    [ "$os" = Darwin ] || return 0
+
+    case "${RECALL_SEARCH_KEY:-}" in
+        "" ) ;;
+        default | alt-r ) return 0 ;;
+        * ) search_key=$RECALL_SEARCH_KEY; return 0 ;;
+    esac
+
+    if [ ! -r /dev/tty ] || [ ! -w /dev/tty ]; then
+        return 0
+    fi
+
+    say ""
+    say "On macOS, Option+R only works after enabling \"Use Option as Meta key\""
+    say "in your terminal. Choose the key that opens recall:"
+    say "  1. Ctrl+X Ctrl+R (recommended, rarely used)"
+    say "  2. Ctrl+T"
+    say "  3. Keep the default Alt+R"
+    printf 'Choice [1]: ' > /dev/tty
+    IFS= read -r answer < /dev/tty || answer=""
+    case "$answer" in
+        2) search_key="ctrl-t" ;;
+        3) search_key="" ;;
+        *) search_key="ctrl-x ctrl-r" ;;
+    esac
+}
+
 proxy_setup=none
 choose_proxy_setup
+search_key=""
+choose_search_key
 shell_configured=0
 if [ -n "$profile_path" ]; then
     mkdir -p "$(dirname "$profile_path")"
@@ -254,6 +313,10 @@ if [ ! -e "$config_path" ]; then
     config_created=1
 fi
 
+if [ -n "$search_key" ]; then
+    set_search_key "$config_path" "$search_key"
+fi
+
 say ""
 say "recall is ready."
 say ""
@@ -283,12 +346,12 @@ esac
 say ""
 say "Open a new terminal after finishing the setup above. Run 'recall' or press"
 say "Alt+R to browse history; press F1 inside recall to see all shortcuts."
-if [ "$os" = Darwin ]; then
+if [ "$os" = Darwin ] && [ -z "$search_key" ]; then
     say ""
     say "macOS note: if Option+R types '®' instead of opening recall, enable"
-    say "\"Use Option as Meta key\" in your terminal (Terminal.app, iTerm2, Ghostty),"
-    say "or set RECALL_KEY to another key before 'recall init' in your shell config."
+    say "\"Use Option as Meta key\" in your terminal (Terminal.app, iTerm2, Ghostty)."
 fi
+say "Search key:   ${search_key:-alt-r} (edit [ui].search_key in the config to change it)"
 say ""
 say "Before capturing sensitive work, review: $config_path"
 say "Uninstall: curl -fsSL https://raw.githubusercontent.com/$repo/master/uninstall.sh | sh"
