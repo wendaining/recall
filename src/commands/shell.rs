@@ -1,7 +1,7 @@
 use std::io::IsTerminal;
 use std::sync::Arc;
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 
 use crate::capture::proxy;
 use crate::cli::ShellArgs;
@@ -36,6 +36,8 @@ pub fn run(args: ShellArgs) -> Result<()> {
 #[cfg(unix)]
 fn run_plain(shell: &str) -> Result<()> {
     use std::os::unix::process::CommandExt;
+
+    use anyhow::anyhow;
     let err = std::process::Command::new(shell).exec();
     Err(anyhow!("failed to exec {shell}: {err}"))
 }

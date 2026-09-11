@@ -10,6 +10,7 @@ pub fn run(args: InitArgs) -> Result<()> {
         "zsh" => include_str!("../../shell/recall.zsh"),
         "bash" => include_str!("../../shell/recall.bash"),
         "fish" => include_str!("../../shell/recall.fish"),
+        "pwsh" | "powershell" => include_str!("../../shell/recall.ps1"),
         _ => unreachable!("clap restricts the shell value"),
     };
     let config = Config::load().unwrap_or_default();
@@ -20,8 +21,21 @@ pub fn run(args: InitArgs) -> Result<()> {
 
 fn search_key_for(spec: &str, shell: &str) -> String {
     match parse_key_sequence(spec) {
+        // PSReadLine binds a single chord, so a two-stroke spec uses its first key.
+        Some(keys) if is_powershell(shell) => encode_ps_readline_key(&keys[0]),
         Some(keys) => encode_key_sequence(&keys, shell),
         None => spec.to_string(),
+    }
+}
+
+fn is_powershell(shell: &str) -> bool {
+    matches!(shell, "pwsh" | "powershell")
+}
+
+fn encode_ps_readline_key(key: &Key) -> String {
+    match key {
+        Key::Alt(ch) => format!("Alt+{}", ch.to_ascii_lowercase()),
+        Key::Ctrl(ch) => format!("Ctrl+{}", ch.to_ascii_lowercase()),
     }
 }
 
@@ -94,6 +108,15 @@ mod tests {
         assert_eq!(search_key_for("ctrl-x ctrl-r", "zsh"), "^X^R");
         assert_eq!(search_key_for("ctrl-x ctrl-r", "bash"), "\\C-x\\C-r");
         assert_eq!(search_key_for("ctrl-x ctrl-r", "fish"), "\\cx\\cr");
+    }
+
+    #[test]
+    fn encodes_ps_readline_chords() {
+        assert_eq!(search_key_for("alt-r", "pwsh"), "Alt+r");
+        assert_eq!(search_key_for("ctrl-t", "pwsh"), "Ctrl+t");
+        assert_eq!(search_key_for("alt-r", "powershell"), "Alt+r");
+        // PSReadLine binds a single chord; the first key of a sequence wins.
+        assert_eq!(search_key_for("ctrl-x ctrl-r", "pwsh"), "Ctrl+x");
     }
 
     #[test]

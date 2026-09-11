@@ -36,19 +36,36 @@ checksum. It then:
 For a non-interactive installation, set `RECALL_PROXY_SETUP` to `terminal`,
 `shell`, or `none` on the `sh` command.
 
+### One-line installer (Windows)
+
+```powershell
+irm https://raw.githubusercontent.com/wendaining/recall/master/install.ps1 | iex
+```
+
+The installer downloads the latest release, verifies its SHA-256 checksum, and
+installs `recall.exe` into `%USERPROFILE%\.local\bin` (override with
+`RECALL_INSTALL_DIR`). It adds that directory to your user `PATH`, appends the
+PowerShell integration to `$PROFILE`, and creates the default `config.toml`.
+Set `RECALL_NO_MODIFY_PROFILE` to skip the profile change.
+
 ### Build from source
 
 ```sh
 cargo build --release
-install -Dm755 target/release/recall ~/.local/bin/recall
+install -Dm755 target/release/recall ~/.local/bin/recall      # Linux/macOS
 ```
 
-Make sure `~/.local/bin` is on `PATH`.
+On Windows the binary is `target\release\recall.exe`; copy it somewhere on
+`PATH`. Make sure the install directory is on `PATH`.
 
 ### Uninstall
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/wendaining/recall/master/uninstall.sh | sh
+```
+
+```powershell
+irm https://raw.githubusercontent.com/wendaining/recall/master/uninstall.ps1 | iex
 ```
 
 The uninstaller removes the binary and only the shell setup managed by the
@@ -76,10 +93,11 @@ a custom `RECALL_INSTALL_DIR`, pass the same variable to the uninstall command.
 
 ## Requirements
 
-- Linux or macOS (Windows build support is planned, not yet functional)
+- Linux, macOS, or Windows 10 1809+ (Windows Terminal with PowerShell)
 - Rust (to build) — developed against Rust 1.88+
 - SQLite is bundled, no system dependency
-- zsh, bash or fish for shell integration
+- zsh, bash or fish on Linux/macOS; PowerShell 7 or Windows PowerShell 5.1 on
+  Windows for shell integration
 
 ## Setup
 
@@ -108,6 +126,11 @@ eval "$(recall init bash)"
 recall init fish | source
 ```
 
+```powershell
+# $PROFILE
+recall init pwsh | Out-String | Invoke-Expression
+```
+
 This installs the capture hooks and an **Alt+R** widget that opens the TUI and
 inserts the selected command into your prompt. The key is set by
 `[ui].search_key` in the config; see below for details.
@@ -128,6 +151,8 @@ search_key = "alt-r"   # alt-r, ctrl-t, or a two-stroke sequence "ctrl-x ctrl-r"
 Supported forms are `alt-<letter>`, `ctrl-<letter>`, or a space-separated
 sequence such as `"ctrl-x ctrl-r"`. The default is `alt-r`. After editing the
 file, reopen the shell (or re-run `eval "$(recall init zsh)"`) to apply it.
+PSReadLine binds a single chord, so on Windows a two-stroke sequence uses its
+first key.
 
 #### macOS: the Option key
 
@@ -179,6 +204,14 @@ directory to the child `PATH`, so the `recall init` hooks keep working even when
 a terminal launches `recall shell` before your profile is loaded. If a session
 produces output but no command markers, the proxy prints a hint when it exits.
 
+On Windows the proxy runs the shell under ConPTY. When neither `proxy.shell` nor
+`--shell` is set, it detects the shell you launched `recall shell` from (walking
+the parent process chain), then falls back to `pwsh`, `powershell`, and
+`%COMSPEC%`. Override with `--shell` or `proxy.shell`, for example
+`recall shell --shell cmd`. The macOS-only `-l` login flag is not used on
+Windows. To capture every Windows Terminal tab automatically, set the profile's
+**Command line** to `recall shell` (Settings → your profile → Command line).
+
 ### 3. Import existing atuin history (optional)
 
 ```sh
@@ -198,7 +231,7 @@ inside the TUI for the full list of key bindings.
 >
 > `Tab` and `Ctrl+Enter` need the shell widget (`recall search --cmd-only`).
 > `Ctrl+Enter` requires a terminal emulator that reports it distinctly; use
-> `Ctrl+E` otherwise.
+> `Ctrl+E` otherwise (on Windows Terminal, use `Ctrl+E`).
 
 Other commands:
 
@@ -221,8 +254,10 @@ recall uuid
 > Use `recall config path`, `recall config show`, and `recall config default`
 > to locate the file, inspect the active settings, and view a complete template.
 
-`~/.config/recall/config.toml` (all fields optional; `recall config default`
-prints a full example). `RECALL_CONFIG` overrides the path.
+`~/.config/recall/config.toml` on Linux/macOS and
+`%APPDATA%\recall\config.toml` on Windows (all fields optional;
+`recall config default` prints a full example). `RECALL_CONFIG` overrides the
+path. On Windows the database defaults to `%LOCALAPPDATA%\recall\recall.db`.
 
 ```toml
 [general]
@@ -250,19 +285,20 @@ list_width_pct = 42          # initial list pane width; resizing in the TUI pers
 ## How it works
 
 ```
-terminal emulator ──▶ recall proxy (PTY) ──▶ shell (zsh/bash/fish)
+terminal emulator ──▶ recall proxy (PTY/ConPTY) ──▶ shell (zsh/bash/fish/pwsh)
               │  byte stream: captured output + in-band OSC markers
               ▼
        recall.db (SQLite, WAL)  ◀── recall TUI
 ```
 
-- The proxy spawns your shell on a PTY and forwards bytes in both directions, so
-  the terminal experience is unchanged.
-- `preexec` writes an in-band start marker carrying `{command, cwd, start}` as a
-  private OSC sequence (`ESC ] 9999 ; {...} BEL`); `precmd` writes the matching
-  end marker with the exit code before the prompt is drawn.
+- The proxy spawns your shell on a PTY (ConPTY on Windows) and forwards bytes in
+  both directions, so the terminal experience is unchanged.
+- The shell integration writes an in-band start marker carrying
+  `{command, cwd, start}` as a private OSC sequence (`ESC ] 9999 ; {...} BEL`)
+  before the command runs, and a matching end marker with the exit code before
+  the next prompt is drawn.
 - The proxy parses and strips these markers, so command boundaries are exact and
-  the next prompt is never captured. There is no side channel or socket, which
+  the prompt is never captured. There is no side channel or socket, which
   keeps recall shell- and OS-agnostic.
 - Output is ANSI-stripped, classified, capped, zstd-compressed and stored in
   SQLite. Command metadata is stored redundantly and linked to atuin by
@@ -279,7 +315,7 @@ distinctly (`Ctrl+E` is the fallback).
 | --- | --- | --- | --- |
 | Linux | zsh, bash, fish | any VT-compatible (Konsole, GNOME Terminal, Ghostty, …) | full support |
 | macOS | zsh, bash, fish | any VT-compatible (Terminal.app, iTerm2, Ghostty, …) | Terminal.app: clipboard via `pbcopy`, use `Ctrl+E` to execute |
-| Windows | — | any VT-compatible (Windows Terminal, …) | build-only for now; use WSL for full functionality |
+| Windows | PowerShell 7, Windows PowerShell 5.1 | Windows Terminal (ConPTY) | clipboard via native `arboard`/`clip`; use `Ctrl+E` to execute |
 
 Clipboard backends are chosen automatically: `wl-copy` (Wayland), `xclip`/`xsel`
 (X11), `pbcopy` (macOS), `clip` (Windows), then native `arboard`, then OSC 52.

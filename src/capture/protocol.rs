@@ -24,4 +24,8 @@ pub enum Request {
         #[serde(default)]
         duration_ns: Option<i64>,
     },
+    /// The prompt is about to be drawn. Emitted as part of the prompt string so
+    /// it lands after the command output; bytes until the matching `end` are
+    /// discarded so the prompt never joins the captured output.
+    Prompt,
 }

@@ -8,8 +8,9 @@ Guidance for agents and contributors working on `recall`.
 It captures command **output** (which atuin does not store) by running the shell
 under a PTY proxy, stores everything in SQLite, and presents it in a ratatui TUI.
 
-Target platform: Linux and macOS, zsh/bash/fish, any VT-compatible terminal
-emulator.
+Target platform: Linux and macOS (zsh/bash/fish) and Windows (PowerShell 7 /
+Windows PowerShell 5.1) in any VT-compatible terminal emulator. Windows uses
+ConPTY through `portable-pty`.
 
 ## Commands
 
@@ -50,18 +51,29 @@ src/
 shell/recall.zsh   embedded shell integrations (include_str!)
 shell/recall.bash
 shell/recall.fish
+shell/recall.ps1
 ```
+
+`util::login_shell()` resolves the shell per platform: `$SHELL` on Unix, and on
+Windows the parent process chain (via `sysinfo`), then `pwsh`, `powershell`,
+`%COMSPEC%`. Windows-only dependencies live under
+`[target.'cfg(windows)'.dependencies]` (`sysinfo`, `windows-sys`).
 
 ### Capture flow
 
 1. `recall shell` -> `capture::proxy::run` opens a PTY and spawns the shell with
    `RECALL_PROXY_ACTIVE=1` and `RECALL_SESSION=<id>`.
 2. The shell's preexec hook (zsh `preexec`, bash `DEBUG` trap, fish
-   `fish_preexec`) writes an in-band start marker carrying the command metadata:
+   `fish_preexec`, PowerShell `PSConsoleHostReadLine`) writes an in-band start
+   marker carrying the command metadata:
    `ESC ] 9999 ; {"type":"start",...} BEL`.
 3. The proxy forwards PTY bytes to stdout and appends them to the active buffer.
 4. The precmd hook writes the matching end marker with the exit code, before the
-   prompt is drawn.
+   prompt is drawn. On PowerShell the `end` marker and a `prompt` marker are
+   embedded in the string returned by the `prompt` function: Windows PowerShell
+   flushes command output after calling `prompt`, so only markers written as
+   part of the prompt land after the output. The `prompt` message makes the
+   proxy discard the prompt text until `end`.
 5. `marker::MarkerFilter` parses and strips both markers; `end` finalizes,
    classifies, and hands the block to a writer thread that inserts into SQLite.
 
@@ -70,15 +82,26 @@ OSC sequences, which keeps the tool shell- and OS-agnostic. The parser returns
 marker-free chunks borrowed from the input, so the common path allocates nothing.
 
 The TUI renders to **stderr** on purpose: stdout carries the selected command so
-the zsh widget can capture it via `$(recall search --cmd-only)`. `Tab` selects
+the shell widget can capture it via `recall search --cmd-only`. `Tab` selects
 for editing (exit 0); `Ctrl+Enter` exits with code 2, which tells the widget to
-execute immediately.
+execute immediately (`Ctrl+E` is the fallback where `Ctrl+Enter` is not
+distinguishable, e.g. Windows Terminal).
 
 ### Key invariants
 
 - The end marker must be emitted in-band before the prompt, otherwise the next
   prompt is captured. `PROMPT_EOL_MARK` is blanked in proxied shells because it
-  is printed before `precmd`.
+  is printed before `precmd`. PowerShell has no "before prompt" hook; its end
+  marker is embedded in the `prompt` return value, which the host writes after
+  the command output.
+- Windows (ConPTY): crossterm's raw mode does not enable VT input, so the proxy
+  sets `ENABLE_VIRTUAL_TERMINAL_INPUT` itself and restores the original console
+  mode on exit. Without it, special keys arrive as legacy scan codes and only
+  plain letters reach the child. The pseudoconsole stays open until its master
+  handle is dropped, so the proxy waits on the child in a separate thread and
+  stops the resize thread to release it; otherwise the reader never sees EOF and
+  the proxy hangs after `exit`. The Unix-only `-l` flag must never be passed to
+  a Windows shell.
 - Marker payloads are JSON: escape every control character so the payload never
   contains a raw BEL/ESC that would terminate the OSC early. `print -r` keeps
   JSON escapes literal.
@@ -90,6 +113,10 @@ execute immediately.
     clobber it before the precmd hook runs.
   - fish: `$CMD_DURATION` is milliseconds; format durations with `math -s0` so
     the JSON has no leading zeros.
+  - PowerShell: capture `$?` and `$LASTEXITCODE` before any statement changes
+    them, then restore them before rendering the user's prompt. The integrations
+    guard against double-loading and only install when PSReadLine is present.
+    `Set-PSReadLineKeyHandler` binds a single chord.
 - Output is stored zstd-compressed; a truncated plain-text projection lives in
   `output_text` for FTS. Keep the two in sync.
 - DB access uses WAL + `busy_timeout`; multiple processes may write.

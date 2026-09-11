@@ -32,19 +32,34 @@ curl -fsSL https://raw.githubusercontent.com/wendaining/recall/master/install.sh
 非交互安装时，可在 `sh` 命令上将 `RECALL_PROXY_SETUP` 设置为 `terminal`、
 `shell` 或 `none`。
 
+### Windows 一行安装
+
+```powershell
+irm https://raw.githubusercontent.com/wendaining/recall/master/install.ps1 | iex
+```
+
+脚本会下载最新 Release、校验 SHA-256，并把 `recall.exe` 安装到
+`%USERPROFILE%\.local\bin`（可用 `RECALL_INSTALL_DIR` 覆盖），把该目录加入用户
+`PATH`，将 PowerShell 集成追加到 `$PROFILE`，并创建默认 `config.toml`。设置
+`RECALL_NO_MODIFY_PROFILE` 可跳过修改 profile。
+
 ### 从源码构建
 
 ```sh
 cargo build --release
-install -Dm755 target/release/recall ~/.local/bin/recall
+install -Dm755 target/release/recall ~/.local/bin/recall      # Linux/macOS
 ```
 
-确保 `~/.local/bin` 在 `PATH` 中。
+Windows 上二进制为 `target\release\recall.exe`，把它复制到 `PATH` 中的目录即可。
 
 ### 卸载
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/wendaining/recall/master/uninstall.sh | sh
+```
+
+```powershell
+irm https://raw.githubusercontent.com/wendaining/recall/master/uninstall.ps1 | iex
 ```
 
 卸载脚本会删除二进制文件，以及安装脚本管理的 shell 配置块；你的配置文件和命令
@@ -65,10 +80,11 @@ curl -fsSL https://raw.githubusercontent.com/wendaining/recall/master/uninstall.
 
 ## 环境要求
 
-- Linux 或 macOS（Windows 仅保证可编译，功能尚未支持）
+- Linux、macOS，或 Windows 10 1809+（Windows Terminal + PowerShell）
 - Rust（用于构建）——基于 Rust 1.88+ 开发
 - SQLite 已内置，无系统依赖
-- zsh、bash 或 fish 用于 shell 集成
+- Linux/macOS 用 zsh、bash 或 fish；Windows 用 PowerShell 7 或 Windows
+  PowerShell 5.1 做 shell 集成
 
 ## 安装配置
 
@@ -96,6 +112,11 @@ eval "$(recall init bash)"
 recall init fish | source
 ```
 
+```powershell
+# $PROFILE
+recall init pwsh | Out-String | Invoke-Expression
+```
+
 这会安装捕获钩子，以及一个 **Alt+R** 组件：打开 TUI 并把选中的命令插入到提示符。
 按键由配置里的 `[ui].search_key` 决定，详见下文。
 
@@ -111,7 +132,8 @@ search_key = "alt-r"   # 可选 alt-r、ctrl-t，或组合键 "ctrl-x ctrl-r"
 
 支持的写法有 `alt-<字母>`、`ctrl-<字母>`，或用空格分隔的组合键（如
 `"ctrl-x ctrl-r"`）。默认是 `alt-r`。修改后重开 shell（或重新执行
-`eval "$(recall init zsh)"`）即可生效。
+`eval "$(recall init zsh)"`）即可生效。PSReadLine 只绑定单个 chord，因此在
+Windows 上组合键只会取其第一个键。
 
 #### macOS 的 Option 键
 
@@ -160,6 +182,13 @@ Homebrew 等初始化。可用 `--no-login` 或 `proxy.login_shell = false` 关�
 启动了 `recall shell`，`recall init` 钩子也能正常工作。如果会话产生了输出却没有
 任何命令标记，代理会在退出时给出提示。
 
+Windows 上代理通过 ConPTY 运行 shell。未设置 `proxy.shell` 和 `--shell` 时，
+它会沿父进程链检测你启动 `recall shell` 时所用的 shell，再依次回退到 `pwsh`、
+`powershell`、`%COMSPEC%`。可用 `--shell` 或 `proxy.shell` 覆盖，例如
+`recall shell --shell cmd`。macOS 专用的 `-l` 登录参数不会在 Windows 上传入。
+要让 Windows Terminal 的每个标签页都自动捕获，可在"设置 → 你的配置文件 →
+命令行"中填入 `recall shell`。
+
 ### 3. 导入已有 atuin 历史（可选）
 
 ```sh
@@ -177,7 +206,8 @@ recall import atuin --days 30  # 仅最近 30 天
 > [!note]
 >
 > `Tab` 和 `Ctrl+Enter` 依赖 shell 组件（`recall search --cmd-only`）。
-> `Ctrl+Enter` 需要终端模拟器能区分上报；否则请用 `Ctrl+E`。
+> `Ctrl+Enter` 需要终端模拟器能区分上报；否则请用 `Ctrl+E`（Windows Terminal
+> 请用 `Ctrl+E`）。
 
 其他命令：
 
@@ -199,8 +229,10 @@ recall uuid
 > `recall config show` 和 `recall config default` 分别查看配置路径、当前生效配置和
 > 完整配置模板。
 
-`~/.config/recall/config.toml`（所有字段均可选；`recall config default`
-会打印完整示例）。`RECALL_CONFIG` 可覆盖路径。
+Linux/macOS 为 `~/.config/recall/config.toml`，Windows 为
+`%APPDATA%\recall\config.toml`（所有字段均可选；`recall config default`
+会打印完整示例）。`RECALL_CONFIG` 可覆盖路径。Windows 上数据库默认位于
+`%LOCALAPPDATA%\recall\recall.db`。
 
 ```toml
 [general]
@@ -227,17 +259,18 @@ list_width_pct = 42          # 列表面板初始宽度；在 TUI 中调整后�
 ## 工作原理
 
 ```
-终端模拟器 ──▶ recall proxy (PTY) ──▶ shell (zsh/bash/fish)
+终端模拟器 ──▶ recall proxy (PTY/ConPTY) ──▶ shell (zsh/bash/fish/pwsh)
               │  字节流：捕获的输出 + 带内 OSC 标记
               ▼
        recall.db (SQLite, WAL)  ◀── recall TUI
 ```
 
-- 代理在 PTY 上启动你的 shell，并双向转发字节，因此终端体验保持不变。
-- `preexec` 以私有 OSC 序列（`ESC ] 9999 ; {...} BEL`）写入带内起始标记，携带
-  `{command, cwd, start}`；`precmd` 在提示符绘制前写入带退出码的结束标记。
-- 代理解析并剥离这些标记，因此命令边界精确，下一个提示符永远不会被捕获。没有
-  旁路通道或 socket，这让 recall 与 shell、操作系统无关。
+- 代理在 PTY（Windows 上为 ConPTY）上启动你的 shell，并双向转发字节，因此终端
+  体验保持不变。
+- shell 集成在命令执行前以私有 OSC 序列（`ESC ] 9999 ; {...} BEL`）写入带内起始
+  标记，携带 `{command, cwd, start}`；并在下一个提示符绘制前写入带退出码的结束标记。
+- 代理解析并剥离这些标记，因此命令边界精确，提示符永远不会被捕获。没有旁路通道
+  或 socket，这让 recall 与 shell、操作系统无关。
 - 输出经过去 ANSI、分类、限长、zstd 压缩后存入 SQLite。命令元数据冗余存储，并通过
   `atuin_id` 与 atuin 关联。
 
@@ -251,7 +284,7 @@ recall 与终端无关：它使用标准 ANSI/OSC 序列，并用 crossterm 渲�
 | --- | --- | --- | --- |
 | Linux | zsh, bash, fish | 任意兼容 VT（Konsole、GNOME Terminal、Ghostty 等） | 完整支持 |
 | macOS | zsh, bash, fish | 任意兼容 VT（Terminal.app、iTerm2、Ghostty 等） | Terminal.app：用 `pbcopy` 复制，用 `Ctrl+E` 执行 |
-| Windows | — | 任意兼容 VT（Windows Terminal 等） | 目前仅可编译；完整功能请用 WSL |
+| Windows | PowerShell 7、Windows PowerShell 5.1 | Windows Terminal（ConPTY） | 剪贴板走原生 `arboard`/`clip`；用 `Ctrl+E` 执行 |
 
 剪贴板后端会自动选择：`wl-copy`（Wayland）、`xclip`/`xsel`（X11）、`pbcopy`（macOS）、
 `clip`（Windows），然后是原生 `arboard`，最后是 OSC 52。

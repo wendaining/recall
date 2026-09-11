@@ -165,16 +165,29 @@ impl Config {
 }
 
 pub fn default_data_dir() -> PathBuf {
-    dirs::data_dir()
+    dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("recall")
 }
 
+/// Atuin's data directory, mirroring `atuin_common::utils::data_dir`: an absolute
+/// `XDG_DATA_HOME` if set, otherwise `~/.local/share`, on every platform. Atuin
+/// uses this layout on Windows and macOS too, so `dirs::data_dir()` would point
+/// at the wrong place there.
 pub fn default_atuin_db_path() -> PathBuf {
-    dirs::data_dir()
+    atuin_data_dir(
+        std::env::var_os("XDG_DATA_HOME").map(PathBuf::from),
+        dirs::home_dir(),
+    )
+    .join("history.db")
+}
+
+fn atuin_data_dir(xdg_data_home: Option<PathBuf>, home: Option<PathBuf>) -> PathBuf {
+    xdg_data_home
+        .filter(|path| path.is_absolute())
+        .or_else(|| home.map(|home| home.join(".local").join("share")))
         .unwrap_or_else(|| PathBuf::from("."))
         .join("atuin")
-        .join("history.db")
 }
 
 #[cfg(test)]
@@ -200,6 +213,31 @@ mod tests {
     #[test]
     fn login_shell_default_matches_platform() {
         assert_eq!(Proxy::default().login_shell, cfg!(target_os = "macos"));
+    }
+
+    #[test]
+    fn atuin_data_dir_matches_atuin_layout() {
+        let home = Path::new("home-base");
+
+        assert_eq!(
+            atuin_data_dir(None, Some(home.to_path_buf())),
+            home.join(".local").join("share").join("atuin")
+        );
+        // A relative XDG_DATA_HOME is ignored, matching atuin's absolute-path rule.
+        assert_eq!(
+            atuin_data_dir(Some(PathBuf::from("relative")), Some(home.to_path_buf())),
+            home.join(".local").join("share").join("atuin")
+        );
+        // An absolute XDG_DATA_HOME wins; build one for the host platform.
+        let xdg = if cfg!(windows) {
+            PathBuf::from(r"C:\xdg")
+        } else {
+            PathBuf::from("/xdg")
+        };
+        assert_eq!(
+            atuin_data_dir(Some(xdg.clone()), Some(home.to_path_buf())),
+            xdg.join("atuin")
+        );
     }
 
     #[test]

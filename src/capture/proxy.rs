@@ -1,7 +1,7 @@
 use std::ffi::{OsStr, OsString};
 use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -31,10 +31,15 @@ struct Active {
     total: usize,
     max: usize,
     exclude_output: bool,
+    /// Set once the prompt begins; prompt bytes are not part of the output.
+    discarding: bool,
 }
 
 impl Active {
     fn push(&mut self, data: &[u8]) {
+        if self.discarding {
+            return;
+        }
         self.total += data.len();
         if self.exclude_output {
             return;
@@ -111,7 +116,8 @@ pub fn run(config: Arc<Config>, shell: String, login: bool) -> Result<i32> {
     }))?;
 
     let mut cmd = CommandBuilder::new(&shell);
-    if login {
+    // `-l` is a Unix login-shell convention; PowerShell/cmd reject it.
+    if login && cfg!(unix) {
         cmd.arg("-l");
     }
     cmd.env("RECALL_PROXY_ACTIVE", "1");
@@ -129,11 +135,26 @@ pub fn run(config: Arc<Config>, shell: String, login: bool) -> Result<i32> {
     let mut reader = pair.master.try_clone_reader()?;
     let writer = pair.master.take_writer()?;
     let master = Arc::new(Mutex::new(pair.master));
+    let running = Arc::new(AtomicBool::new(true));
 
     let _raw_guard = RawModeGuard::new();
 
     spawn_stdin_pump(writer, shared.clone());
-    spawn_resize_handler(master);
+    spawn_resize_handler(master.clone(), running.clone());
+    // The reader holds an OS pipe handle, not the pseudoconsole. Dropping the
+    // last `master` closes ConPTY, which is what finally delivers EOF to the
+    // reader on Windows; the resize thread owns the remaining reference.
+    drop(master);
+
+    let (code_tx, code_rx) = mpsc::channel::<i32>();
+    {
+        let running = running.clone();
+        thread::spawn(move || {
+            let code = child.wait().map(|status| status.exit_code()).unwrap_or(1) as i32;
+            running.store(false, Ordering::SeqCst);
+            let _ = code_tx.send(code);
+        });
+    }
 
     let debug = std::env::var_os("RECALL_DEBUG").is_some();
     let mut stdout = std::io::stdout();
@@ -184,7 +205,10 @@ pub fn run(config: Arc<Config>, shell: String, login: bool) -> Result<i32> {
         let _ = stdout.flush();
     }
 
-    let code = child.wait().map(|status| status.exit_code()).unwrap_or(1) as i32;
+    // Stop the resize thread so it releases the pseudoconsole, then collect the
+    // exit code the waiter thread captured.
+    running.store(false, Ordering::SeqCst);
+    let code = code_rx.recv().unwrap_or(1);
 
     drain_pending(&shared, Duration::from_millis(500));
 
@@ -233,6 +257,7 @@ fn apply_event(shared: &Arc<Shared>, event: Request) {
                     total: 0,
                     max: shared.config.general.max_output_bytes,
                     exclude_output,
+                    discarding: false,
                 });
             }
         }
@@ -248,6 +273,11 @@ fn apply_event(shared: &Arc<Shared>, event: Request) {
                 let block = finalize(active, exit, duration_ns, shared);
                 shared.pending.fetch_add(1, Ordering::SeqCst);
                 let _ = shared.tx.send(block);
+            }
+        }
+        Request::Prompt => {
+            if let Some(active) = shared.state.lock().unwrap().active.as_mut() {
+                active.discarding = true;
             }
         }
     }
@@ -371,7 +401,11 @@ fn spawn_writer(rx: Receiver<Block>, db_path: PathBuf, shared: Arc<Shared>) {
     });
 }
 
-fn spawn_stdin_pump(mut writer: Box<dyn Write + Send>, shared: Arc<Shared>) {
+fn spawn_stdin_pump(writer: Box<dyn Write + Send>, shared: Arc<Shared>) {
+    spawn_byte_pump(writer, shared);
+}
+
+fn spawn_byte_pump(mut writer: Box<dyn Write + Send>, shared: Arc<Shared>) {
     thread::spawn(move || {
         let mut stdin = std::io::stdin();
         let mut buf = [0u8; 8192];
@@ -393,7 +427,7 @@ fn spawn_stdin_pump(mut writer: Box<dyn Write + Send>, shared: Arc<Shared>) {
 }
 
 #[cfg(unix)]
-fn spawn_resize_handler(master: Arc<Mutex<Box<dyn MasterPty + Send>>>) {
+fn spawn_resize_handler(master: Arc<Mutex<Box<dyn MasterPty + Send>>>, _running: Arc<AtomicBool>) {
     thread::spawn(move || {
         use signal_hook::consts::SIGWINCH;
         use signal_hook::iterator::Signals;
@@ -407,10 +441,10 @@ fn spawn_resize_handler(master: Arc<Mutex<Box<dyn MasterPty + Send>>>) {
 }
 
 #[cfg(not(unix))]
-fn spawn_resize_handler(master: Arc<Mutex<Box<dyn MasterPty + Send>>>) {
+fn spawn_resize_handler(master: Arc<Mutex<Box<dyn MasterPty + Send>>>, running: Arc<AtomicBool>) {
     thread::spawn(move || {
         let mut last = crossterm::terminal::size().unwrap_or((0, 0));
-        loop {
+        while running.load(Ordering::SeqCst) {
             thread::sleep(Duration::from_millis(250));
             let Ok(size) = crossterm::terminal::size() else {
                 continue;
@@ -491,13 +525,29 @@ fn drain_pending(shared: &Arc<Shared>, timeout: Duration) {
 
 struct RawModeGuard {
     active: bool,
+    #[cfg(windows)]
+    original_input_mode: Option<u32>,
 }
 
 impl RawModeGuard {
     fn new() -> Self {
         let is_tty = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
+        // Crossterm's raw mode only clears line/echo/processed input on Windows.
+        // Pass-through also needs ENABLE_VIRTUAL_TERMINAL_INPUT so the console
+        // yields VT bytes for every key and terminal response instead of legacy
+        // scan codes.
+        #[cfg(windows)]
+        let original_input_mode = if is_tty {
+            enable_virtual_terminal_input()
+        } else {
+            None
+        };
         let active = is_tty && crossterm::terminal::enable_raw_mode().is_ok();
-        Self { active }
+        Self {
+            active,
+            #[cfg(windows)]
+            original_input_mode,
+        }
     }
 }
 
@@ -506,12 +556,58 @@ impl Drop for RawModeGuard {
         if self.active {
             let _ = crossterm::terminal::disable_raw_mode();
         }
+        #[cfg(windows)]
+        if let Some(mode) = self.original_input_mode {
+            restore_console_mode(mode);
+        }
     }
 }
 
-#[cfg(all(test, unix))]
+/// Enable VT input mode, returning the previous mode for restoration.
+#[cfg(windows)]
+fn enable_virtual_terminal_input() -> Option<u32> {
+    use windows_sys::Win32::System::Console::{
+        ENABLE_VIRTUAL_TERMINAL_INPUT, GetConsoleMode, GetStdHandle, STD_INPUT_HANDLE,
+        SetConsoleMode,
+    };
+
+    // SAFETY: reads and writes the console mode of the process's own standard
+    // input handle, storing the value in a local.
+    unsafe {
+        let handle = GetStdHandle(STD_INPUT_HANDLE);
+        let mut mode = 0u32;
+        if GetConsoleMode(handle, &mut mode) == 0 {
+            return None;
+        }
+        let original = mode;
+        if SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_INPUT) == 0 {
+            return None;
+        }
+        if std::env::var_os("RECALL_DEBUG").is_some() {
+            util::eprintln_flush(&format!(
+                "recall[debug]: VT input enabled (was {original:#x})"
+            ));
+        }
+        Some(original)
+    }
+}
+
+#[cfg(windows)]
+fn restore_console_mode(mode: u32) {
+    use windows_sys::Win32::System::Console::{GetStdHandle, STD_INPUT_HANDLE, SetConsoleMode};
+
+    // SAFETY: restores the previously captured mode on the standard input handle.
+    unsafe {
+        let handle = GetStdHandle(STD_INPUT_HANDLE);
+        SetConsoleMode(handle, mode);
+    }
+}
+
+#[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use std::fs::File;
+    #[cfg(unix)]
     use std::os::fd::{AsRawFd, FromRawFd};
 
     use super::*;
@@ -609,6 +705,58 @@ mod tests {
         assert!(!should_warn(0, 0));
     }
 
+    #[test]
+    fn captures_a_start_end_stream_with_crlf_output() {
+        let config = Config::default();
+        let (tx, rx) = mpsc::channel();
+        let shared = Arc::new(Shared {
+            state: Mutex::new(CaptureState::default()),
+            config: Arc::new(config.clone()),
+            session: "session-1".to_string(),
+            shell: "pwsh".to_string(),
+            hostname: None,
+            exclude: build_exclude(&config.proxy.exclude),
+            exclude_output: build_exclude(&config.proxy.exclude_output),
+            tx,
+            pending: AtomicUsize::new(0),
+            markers_seen: AtomicUsize::new(0),
+            input_bytes: AtomicUsize::new(0),
+        });
+
+        let mut stream = Vec::new();
+        stream.extend_from_slice(
+            b"\x1b]9999;{\"type\":\"start\",\"id\":\"b1\",\"command\":\"echo hi\",\"cwd\":\"C:/tmp\",\"started_at\":42}\x07",
+        );
+        stream.extend_from_slice(b"hi\r\nthere\r\n");
+        stream.extend_from_slice(
+            b"\x1b]9999;{\"type\":\"end\",\"id\":\"b1\",\"exit\":0,\"duration_ns\":7}\x07",
+        );
+
+        let mut filter = MarkerFilter::new();
+        match filter.feed(&stream) {
+            Feed::Plain(bytes) => capture(&shared, bytes),
+            Feed::Ops(ops) => {
+                for op in ops {
+                    match op {
+                        Op::Bytes(bytes) => capture(&shared, &bytes),
+                        Op::Event(event) => apply_event(&shared, event),
+                    }
+                }
+            }
+        }
+
+        let block = rx.recv().unwrap();
+        assert_eq!(block.command, "echo hi");
+        assert_eq!(block.cwd.as_deref(), Some("C:/tmp"));
+        assert_eq!(block.started_at, 42);
+        assert_eq!(block.exit_code, Some(0));
+        assert_eq!(block.duration_ns, Some(7));
+        assert_eq!(block.shell.as_deref(), Some("pwsh"));
+        // The ANSI stripper normalizes the CRLF line endings ConPTY emits.
+        assert_eq!(block.output.as_deref(), Some(b"hi\nthere".as_slice()));
+    }
+
+    #[cfg(unix)]
     #[test]
     fn reads_cell_and_pixel_dimensions_from_pty() {
         let mut expected = libc::winsize {
