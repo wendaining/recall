@@ -1,7 +1,7 @@
 use std::ffi::{OsStr, OsString};
 use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -31,10 +31,15 @@ struct Active {
     total: usize,
     max: usize,
     exclude_output: bool,
+    /// Set once the prompt begins; prompt bytes are not part of the output.
+    discarding: bool,
 }
 
 impl Active {
     fn push(&mut self, data: &[u8]) {
+        if self.discarding {
+            return;
+        }
         self.total += data.len();
         if self.exclude_output {
             return;
@@ -130,11 +135,26 @@ pub fn run(config: Arc<Config>, shell: String, login: bool) -> Result<i32> {
     let mut reader = pair.master.try_clone_reader()?;
     let writer = pair.master.take_writer()?;
     let master = Arc::new(Mutex::new(pair.master));
+    let running = Arc::new(AtomicBool::new(true));
 
     let _raw_guard = RawModeGuard::new();
 
     spawn_stdin_pump(writer, shared.clone());
-    spawn_resize_handler(master);
+    spawn_resize_handler(master.clone(), running.clone());
+    // The reader holds an OS pipe handle, not the pseudoconsole. Dropping the
+    // last `master` closes ConPTY, which is what finally delivers EOF to the
+    // reader on Windows; the resize thread owns the remaining reference.
+    drop(master);
+
+    let (code_tx, code_rx) = mpsc::channel::<i32>();
+    {
+        let running = running.clone();
+        thread::spawn(move || {
+            let code = child.wait().map(|status| status.exit_code()).unwrap_or(1) as i32;
+            running.store(false, Ordering::SeqCst);
+            let _ = code_tx.send(code);
+        });
+    }
 
     let debug = std::env::var_os("RECALL_DEBUG").is_some();
     let mut stdout = std::io::stdout();
@@ -185,7 +205,10 @@ pub fn run(config: Arc<Config>, shell: String, login: bool) -> Result<i32> {
         let _ = stdout.flush();
     }
 
-    let code = child.wait().map(|status| status.exit_code()).unwrap_or(1) as i32;
+    // Stop the resize thread so it releases the pseudoconsole, then collect the
+    // exit code the waiter thread captured.
+    running.store(false, Ordering::SeqCst);
+    let code = code_rx.recv().unwrap_or(1);
 
     drain_pending(&shared, Duration::from_millis(500));
 
@@ -234,6 +257,7 @@ fn apply_event(shared: &Arc<Shared>, event: Request) {
                     total: 0,
                     max: shared.config.general.max_output_bytes,
                     exclude_output,
+                    discarding: false,
                 });
             }
         }
@@ -249,6 +273,11 @@ fn apply_event(shared: &Arc<Shared>, event: Request) {
                 let block = finalize(active, exit, duration_ns, shared);
                 shared.pending.fetch_add(1, Ordering::SeqCst);
                 let _ = shared.tx.send(block);
+            }
+        }
+        Request::Prompt => {
+            if let Some(active) = shared.state.lock().unwrap().active.as_mut() {
+                active.discarding = true;
             }
         }
     }
@@ -372,7 +401,11 @@ fn spawn_writer(rx: Receiver<Block>, db_path: PathBuf, shared: Arc<Shared>) {
     });
 }
 
-fn spawn_stdin_pump(mut writer: Box<dyn Write + Send>, shared: Arc<Shared>) {
+fn spawn_stdin_pump(writer: Box<dyn Write + Send>, shared: Arc<Shared>) {
+    spawn_byte_pump(writer, shared);
+}
+
+fn spawn_byte_pump(mut writer: Box<dyn Write + Send>, shared: Arc<Shared>) {
     thread::spawn(move || {
         let mut stdin = std::io::stdin();
         let mut buf = [0u8; 8192];
@@ -394,7 +427,7 @@ fn spawn_stdin_pump(mut writer: Box<dyn Write + Send>, shared: Arc<Shared>) {
 }
 
 #[cfg(unix)]
-fn spawn_resize_handler(master: Arc<Mutex<Box<dyn MasterPty + Send>>>) {
+fn spawn_resize_handler(master: Arc<Mutex<Box<dyn MasterPty + Send>>>, _running: Arc<AtomicBool>) {
     thread::spawn(move || {
         use signal_hook::consts::SIGWINCH;
         use signal_hook::iterator::Signals;
@@ -408,10 +441,10 @@ fn spawn_resize_handler(master: Arc<Mutex<Box<dyn MasterPty + Send>>>) {
 }
 
 #[cfg(not(unix))]
-fn spawn_resize_handler(master: Arc<Mutex<Box<dyn MasterPty + Send>>>) {
+fn spawn_resize_handler(master: Arc<Mutex<Box<dyn MasterPty + Send>>>, running: Arc<AtomicBool>) {
     thread::spawn(move || {
         let mut last = crossterm::terminal::size().unwrap_or((0, 0));
-        loop {
+        while running.load(Ordering::SeqCst) {
             thread::sleep(Duration::from_millis(250));
             let Ok(size) = crossterm::terminal::size() else {
                 continue;
@@ -500,8 +533,9 @@ impl RawModeGuard {
     fn new() -> Self {
         let is_tty = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
         // Crossterm's raw mode only clears line/echo/processed input on Windows.
-        // Pass-through needs ENABLE_VIRTUAL_TERMINAL_INPUT so arrow/function/Alt
-        // keys reach ConPTY as VT sequences instead of legacy scan codes.
+        // Pass-through also needs ENABLE_VIRTUAL_TERMINAL_INPUT so the console
+        // yields VT bytes for every key and terminal response instead of legacy
+        // scan codes.
         #[cfg(windows)]
         let original_input_mode = if is_tty {
             enable_virtual_terminal_input()
@@ -548,6 +582,11 @@ fn enable_virtual_terminal_input() -> Option<u32> {
         let original = mode;
         if SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_INPUT) == 0 {
             return None;
+        }
+        if std::env::var_os("RECALL_DEBUG").is_some() {
+            util::eprintln_flush(&format!(
+                "recall[debug]: VT input enabled (was {original:#x})"
+            ));
         }
         Some(original)
     }

@@ -71,11 +71,10 @@ if (-not (Get-Module PSReadLine -ErrorAction Ignore)) {
         param([string]$Payload)
 
         try {
-            $marker = ([char]27) + ']9999;' + $Payload + ([char]7)
-            $bytes = [System.Text.Encoding]::UTF8.GetBytes($marker)
-            $stream = [Console]::OpenStandardOutput()
-            $stream.Write($bytes, 0, $bytes.Length)
-            $stream.Flush()
+            # Write through the console writer so the marker is ordered with the
+            # host's own output instead of racing its buffer.
+            [Console]::Write(([char]27) + ']9999;' + $Payload + ([char]7))
+            [Console]::Out.Flush()
         } catch {
         }
     }
@@ -138,14 +137,19 @@ if (-not (Get-Module PSReadLine -ErrorAction Ignore)) {
     }
 
     $global:__RecallPrevReadLine = $function:PSConsoleHostReadLine
+    $global:__RecallPrevPrompt = $function:prompt
 
-    # This function is called by the console host to read the next command line.
-    # Wrapping it gives exact command boundaries: the previous command has just
-    # finished (so `$?` is meaningful) and the new line has not run yet.
-    function global:PSConsoleHostReadLine {
+    # The end boundary travels inside the prompt string itself: the host writes
+    # command output first and the prompt after, so markers embedded in the
+    # returned prompt land after the output. `prompt` tells the proxy to discard
+    # the prompt text until the matching `end`.
+    function global:prompt {
         $lastStatus = $?
         $lastNative = $global:LASTEXITCODE
         $exitCode = if ($lastStatus) { 0 } elseif ($lastNative) { $lastNative } else { 1 }
+
+        $prefix = ''
+        $suffix = ''
 
         if ($env:RECALL_PROXY_ACTIVE -and $global:__RecallActiveId) {
             $duration = ''
@@ -155,7 +159,8 @@ if (-not (Get-Module PSReadLine -ErrorAction Ignore)) {
             }
             $payload = '{{"type":"end","id":"{0}","exit":{1}{2}}}' -f `
                 $global:__RecallActiveId, $exitCode, $duration
-            __recall_emit $payload
+            $prefix = ([char]27) + ']9999;{"type":"prompt"}' + ([char]7)
+            $suffix = ([char]27) + ']9999;' + $payload + ([char]7)
             $global:__RecallActiveId = ''
         } elseif (-not $env:RECALL_PROXY_ACTIVE -and $global:__RecallLastCommand) {
             $durationNs = 0
@@ -163,11 +168,11 @@ if (-not (Get-Module PSReadLine -ErrorAction Ignore)) {
                 $durationNs = ([DateTime]::UtcNow.Ticks - $global:__RecallLastStartTicks) * 100
             }
             __recall_record $global:__RecallLastCommand $env:__RecallLastCwd $exitCode $durationNs
+            $global:__RecallLastCommand = ''
         }
 
-        # Restore the previous status so the shell's own prompt function
-        # (oh-my-posh, starship, ...) still reports the right exit code. The
-        # prompt is rendered inside the ReadLine call below.
+        # Restore the previous status so the user's prompt (oh-my-posh,
+        # starship, ...) still reports the right exit code.
         $global:LASTEXITCODE = $lastNative
         if ($lastStatus) {
             $null = 1
@@ -175,6 +180,12 @@ if (-not (Get-Module PSReadLine -ErrorAction Ignore)) {
             $null = Get-Item -LiteralPath '__recall_no_such_status__' -ErrorAction SilentlyContinue
         }
 
+        $prefix + (& $global:__RecallPrevPrompt) + $suffix
+    }
+
+    # Wrapping PSConsoleHostReadLine gives the preexec hook: after it returns the
+    # accepted line and before that line runs, emit the `start` marker.
+    function global:PSConsoleHostReadLine {
         $line = & $global:__RecallPrevReadLine
 
         $global:__RecallLastCommand = ''
@@ -196,7 +207,6 @@ if (-not (Get-Module PSReadLine -ErrorAction Ignore)) {
             }
         }
 
-        $global:LASTEXITCODE = $lastNative
         return $line
     }
 
