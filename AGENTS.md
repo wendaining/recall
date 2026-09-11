@@ -81,6 +81,26 @@ Windows. Run the full CI matrix; PTY input or teardown changes must also keep
 `tests/windows_proxy.rs` passing so special-key forwarding and clean ConPTY exit
 remain covered end to end.
 
+### Windows CI and ConPTY tests
+
+- `tests/windows_proxy.rs` drives a nested terminal: the test-side ConPTY hosts
+  the recall proxy, which hosts PowerShell in a second ConPTY. Treat it as an
+  asynchronous protocol, not a process that is ready immediately after spawn.
+- Never send test input until an observable PowerShell prompt has arrived. After
+  each command, wait for the next unique prompt marker before sending a special
+  key or another command; seeing command output alone does not mean PSReadLine
+  has resumed reading input.
+- Continue answering cursor-position queries in order. Once PowerShell enables
+  win32-input-mode, encode special keys as the corresponding key-down/key-up
+  input records so the test exercises the same path as a terminal emulator.
+- Use bounded waits that kill the child and include the captured terminal stream
+  on failure. Do not stabilize this test with fixed sleeps, blind CI reruns,
+  ignored failures, or by replacing it with a compile-only check.
+- A non-Windows `cargo test` reports zero tests for `windows_proxy`; it is not
+  Windows validation. Keep `cargo test` on all three CI platforms. Formatting
+  and platform-neutral Clippy checks may run once on Linux to avoid redundant
+  builds, but the Windows runtime test must remain intact.
+
 ### Capture flow
 
 1. `recall shell` -> `capture::proxy::run` opens a PTY and spawns the shell with
