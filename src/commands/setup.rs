@@ -77,6 +77,11 @@ pub fn run(args: SetupArgs) -> Result<()> {
             "already current"
         }
     );
+    if args.mode == SetupMode::Auto {
+        println!(
+            "output capture starts automatically in new interactive shells; use --mode hooks to opt out"
+        );
+    }
     Ok(())
 }
 
@@ -372,7 +377,11 @@ fn active_init_count(text: &str) -> usize {
     text.lines()
         .filter(|line| {
             let line = line.trim_start();
-            !line.starts_with('#') && line.contains("recall init")
+            !line.starts_with('#')
+                && line.contains("recall init ")
+                && (line.contains("eval")
+                    || line.contains("source")
+                    || line.contains("Invoke-Expression"))
         })
         .count()
 }
@@ -517,6 +526,14 @@ mod tests {
         let rendered = render_profile(original, "zsh", Path::new("/bin"), SetupMode::Auto);
         assert_eq!(active_init_count(&rendered), 1);
         assert!(!rendered.contains(INTEGRATION_START));
+    }
+
+    #[test]
+    fn does_not_treat_mentioned_init_commands_as_integration() {
+        let original = "echo 'run recall init zsh later'\n";
+        let rendered = render_profile(original, "zsh", Path::new("/bin"), SetupMode::Auto);
+        assert_eq!(active_init_count(&rendered), 1);
+        assert!(rendered.contains(INTEGRATION_START));
     }
 
     #[test]
