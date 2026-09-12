@@ -149,3 +149,5 @@ bind -x '"@RECALL_SEARCH_KEY@": __recall_search'
 if [[ $OSTYPE == darwin* ]]; then
   bind -x '"®": __recall_search'
 fi
+
+export RECALL_HOOKS_ACTIVE=1

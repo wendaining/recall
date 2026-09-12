@@ -146,3 +146,5 @@ if [[ -o interactive ]]; then
     bindkey '®' _recall_search
   fi
 fi
+
+export RECALL_HOOKS_ACTIVE=1

@@ -15,6 +15,23 @@ pub(crate) const INTEGRATION_END: &str = "# <<< recall setup integration <<<";
 const LEGACY_START: &str = "# >>> recall installer >>>";
 const LEGACY_END: &str = "# <<< recall installer <<<";
 
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) enum ManagedSetup {
+    Auto,
+    Hooks,
+    LegacyAuto,
+    LegacyHooks,
+    UnmanagedHooks,
+    None,
+    Invalid,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) struct ProfileInspection {
+    pub(crate) setup: ManagedSetup,
+    pub(crate) init_count: usize,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum TextEncoding {
     Utf8,
@@ -61,6 +78,47 @@ pub fn run(args: SetupArgs) -> Result<()> {
         }
     );
     Ok(())
+}
+
+pub(crate) fn inspect_profile(path: &Path) -> Result<ProfileInspection> {
+    let path = resolve_profile_target(path)?;
+    let profile = read_profile(&path)?;
+    Ok(inspect_text(&profile.text))
+}
+
+fn inspect_text(text: &str) -> ProfileInspection {
+    let init_count = active_init_count(text);
+    if remove_managed_blocks(text).is_err() {
+        return ProfileInspection {
+            setup: ManagedSetup::Invalid,
+            init_count,
+        };
+    }
+
+    let setup = if let Some(block) = managed_block(text, BOOTSTRAP_START, BOOTSTRAP_END) {
+        if block.contains("recall shell") {
+            ManagedSetup::Auto
+        } else {
+            ManagedSetup::Hooks
+        }
+    } else if let Some(block) = managed_block(text, LEGACY_START, LEGACY_END) {
+        if block.contains("recall shell") {
+            ManagedSetup::LegacyAuto
+        } else {
+            ManagedSetup::LegacyHooks
+        }
+    } else if text.contains(INTEGRATION_START) || init_count > 0 {
+        ManagedSetup::UnmanagedHooks
+    } else {
+        ManagedSetup::None
+    };
+    ProfileInspection { setup, init_count }
+}
+
+fn managed_block<'a>(text: &'a str, start: &str, end: &str) -> Option<&'a str> {
+    let start = text.find(start)? + start.len();
+    let end = text[start..].find(end)? + start;
+    Some(&text[start..end])
 }
 
 fn resolve_shell(name: Option<&str>) -> Result<&'static Shell> {
@@ -467,6 +525,28 @@ mod tests {
             "{LEGACY_START}\nold\n{LEGACY_END}\nkeep\n{BOOTSTRAP_START}\nnew\n{BOOTSTRAP_END}\n"
         );
         assert_eq!(remove_managed_blocks(&input).unwrap(), "keep\n");
+    }
+
+    #[test]
+    fn inspects_managed_and_unmanaged_setup() {
+        let auto = render_profile("", "zsh", Path::new("/bin"), SetupMode::Auto);
+        assert_eq!(
+            inspect_text(&auto),
+            ProfileInspection {
+                setup: ManagedSetup::Auto,
+                init_count: 1,
+            }
+        );
+
+        let hooks = render_profile("", "fish", Path::new("/bin"), SetupMode::Hooks);
+        assert_eq!(inspect_text(&hooks).setup, ManagedSetup::Hooks);
+
+        let unmanaged = "eval \"$(recall init bash)\"\n";
+        assert_eq!(inspect_text(unmanaged).setup, ManagedSetup::UnmanagedHooks);
+        assert_eq!(inspect_text(unmanaged).init_count, 1);
+
+        let invalid = format!("{BOOTSTRAP_START}\n");
+        assert_eq!(inspect_text(&invalid).setup, ManagedSetup::Invalid);
     }
 
     #[test]

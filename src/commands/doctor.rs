@@ -1,5 +1,6 @@
 use anyhow::Result;
 
+use super::setup::{self, ManagedSetup};
 use crate::config::Config;
 use crate::db::{self, Db, queries, schema};
 use crate::shell::Shell;
@@ -110,32 +111,91 @@ fn check_shell_integration(cfg: &Config) {
     );
 
     let shell = util::login_shell();
+    let mut setup_state = ManagedSetup::None;
+    let mut init_count = 0;
     match Shell::from_command(&shell).and_then(Shell::rc_path) {
-        Some(path) => {
-            let configured = std::fs::read_to_string(&path)
-                .map(|text| text.contains("recall init"))
-                .unwrap_or(false);
-            println!(
-                "  rc file: {} ({})",
-                path.display(),
-                if configured {
-                    "recall init found"
-                } else {
-                    "recall init NOT found"
-                }
-            );
-        }
+        Some(path) => match setup::inspect_profile(&path) {
+            Ok(inspection) => {
+                setup_state = inspection.setup;
+                init_count = inspection.init_count;
+                println!("  rc file: {}", path.display());
+            }
+            Err(err) => println!("  rc file: {} (ERROR: {err})", path.display()),
+        },
         None => println!("  rc file: unknown shell {shell}"),
     }
 
     println!(
-        "  proxy:   {}",
-        if std::env::var_os("RECALL_PROXY_ACTIVE").is_some() {
-            "active"
-        } else {
-            "not active; run `recall shell` to capture output"
+        "  setup:   {}",
+        match setup_state {
+            ManagedSetup::Auto => "automatic output capture (managed)",
+            ManagedSetup::Hooks => "hooks only (managed)",
+            ManagedSetup::LegacyAuto => "automatic output capture (legacy installer setup)",
+            ManagedSetup::LegacyHooks => "hooks only (legacy installer setup)",
+            ManagedSetup::UnmanagedHooks => "hooks only (unmanaged recall init)",
+            ManagedSetup::None => "not configured",
+            ManagedSetup::Invalid => "ERROR: malformed recall setup markers",
         }
     );
+    println!(
+        "  hooks:   {}",
+        match init_count {
+            0 => "not configured".to_string(),
+            1 => {
+                if std::env::var_os("RECALL_HOOKS_ACTIVE").is_some() {
+                    "configured and active".to_string()
+                } else {
+                    "configured; not active in this shell".to_string()
+                }
+            }
+            count => format!("WARNING: {count} active recall init lines found"),
+        }
+    );
+    if init_count > 1 {
+        println!("  hint:    remove duplicate active `recall init` lines from the startup file");
+    }
+    if matches!(
+        setup_state,
+        ManagedSetup::LegacyAuto | ManagedSetup::LegacyHooks
+    ) {
+        println!("  hint:    run `recall setup` to migrate the legacy installer setup");
+    }
+
+    let proxy_active = std::env::var_os("RECALL_PROXY_ACTIVE").is_some();
+    println!(
+        "  proxy:   {}",
+        if proxy_active {
+            "active"
+        } else if std::env::var("RECALL_PROXY").is_ok_and(|value| value == "0") {
+            "disabled by RECALL_PROXY=0"
+        } else {
+            "not active"
+        }
+    );
+    if !proxy_active {
+        match setup_state {
+            ManagedSetup::Auto | ManagedSetup::LegacyAuto => {
+                if std::env::var("RECALL_PROXY").is_ok_and(|value| value == "0") {
+                    println!(
+                        "  hint:    unset RECALL_PROXY and open a new terminal to capture output"
+                    );
+                } else {
+                    println!("  hint:    open a new terminal to activate automatic output capture");
+                }
+            }
+            ManagedSetup::Hooks | ManagedSetup::LegacyHooks | ManagedSetup::UnmanagedHooks => {
+                println!(
+                    "  hint:    hooks record metadata only; run `recall shell` to capture output"
+                );
+            }
+            ManagedSetup::None => {
+                println!("  hint:    run `recall setup` to enable automatic output capture");
+            }
+            ManagedSetup::Invalid => {
+                println!("  hint:    repair the setup markers before running `recall setup` again");
+            }
+        }
+    }
     println!(
         "  login:   {}",
         if cfg!(unix) {
