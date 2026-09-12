@@ -171,10 +171,10 @@ recall init pwsh | Out-String | Invoke-Expression
 search_key = "alt-r"   # 可选 alt-r、ctrl-t，或组合键 "ctrl-x ctrl-r"
 ```
 
-支持的写法有 `alt-<字母>`、`ctrl-<字母>`，或用空格分隔的组合键（如
-`"ctrl-x ctrl-r"`）。默认是 `alt-r`。修改后重开 shell（或重新执行
-`eval "$(recall init zsh)"`）即可生效。PSReadLine 只绑定单个 chord，因此在
-Windows 上组合键只会取其第一个键。
+支持的写法有 `alt-<字母>`、`ctrl-<字母>`、`ctrl-space`，或用空格分隔的组合键
+（如 `"ctrl-x ctrl-r"`）。默认是 `alt-r`。运行 `recall config` 可以直接录制并
+验证快捷键；修改后重开 shell 即可生效。PowerShell 会把多段组合转换为 PSReadLine
+使用的逗号分隔 chord。
 
 #### macOS 的 Option 键
 
@@ -262,6 +262,7 @@ recall search --cmd-only   # 打印选择结果（供 shell 组件使用）
 recall setup [shell]       # 配置自动捕获和 shell hooks
 recall doctor              # 诊断配置、数据库和剪贴板
 recall prune               # 清理超过保留期的输出
+recall config              # 打开交互式设置界面
 recall config path|show|default
 recall uuid
 ```
@@ -272,9 +273,27 @@ recall uuid
 >
 > 启用代理前，请务必检查配置文件。它直接决定数据库的存储位置、哪些命令输出会被
 > 记录、密钥过滤、数据保留期限和剪贴板行为。默认配置可以直接运行，但主动配置能
-> 避免长期保存大量无用输出或敏感内容。可使用 `recall config path`、
-> `recall config show` 和 `recall config default` 分别查看配置路径、当前生效配置和
-> 完整配置模板。
+> 避免长期保存大量无用输出或敏感内容。运行 `recall config` 可交互检查捕获规则；
+> `recall config path`、`recall config show` 和 `recall config default` 仍可分别查看
+> 配置路径、当前生效配置和完整配置模板。
+
+### 交互式配置
+
+```sh
+recall config
+```
+
+设置界面可以管理搜索快捷键、敏感信息与交互式命令过滤、命令/输出排除正则、显示
+偏好以及 Shell 集成。每项修改都会先验证，再原子保存；已有 TOML 注释和无关字段会
+被保留。快捷键需要打开新 Shell 后生效。
+
+- `Tab` / `Shift+Tab`：切换分类
+- `↑` / `↓`：选择设置
+- `←` / `→`：调整显示数值或时间格式预设
+- `Space`：切换开关
+- `Enter`：编辑、录制或应用
+- `a` / `e` / `d`：新增、编辑或删除自定义捕获规则
+- `F1`：帮助；`Esc` / `q`：返回或退出
 
 Linux/macOS 为 `~/.config/recall/config.toml`，Windows 为
 `%APPDATA%\recall\config.toml`（所有字段均可选；`recall config default`
@@ -301,6 +320,8 @@ backend = "auto"             # auto | arboard | osc52 | wl-copy | xclip | xsel
 [ui]
 search_key = "alt-r"         # 打开 recall 的按键（alt-r、ctrl-t、"ctrl-x ctrl-r"）
 list_width_pct = 42          # 列表面板初始宽度；在 TUI 中调整后会持久化
+preview_lines = 4            # 每条结果显示的输出预览行数
+date_format = "%Y-%m-%d %H:%M:%S"
 ```
 
 ## 工作原理
