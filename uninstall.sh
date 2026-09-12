@@ -8,12 +8,21 @@ say() {
 
 remove_managed_setup() {
     file=$1
+    shell_name=$2
     [ -f "$file" ] || return 0
-    grep -Fq '# >>> recall installer >>>' "$file" || return 0
+    grep -Eq '^# >>> recall (installer|setup (bootstrap|integration)) >>>$' "$file" \
+        || return 0
+    if command -v recall >/dev/null 2>&1 \
+        && recall setup "$shell_name" --profile "$file" --remove >/dev/null 2>&1; then
+        say "Removed recall-managed setup from $file"
+        return 0
+    fi
 
     temp_file=$(mktemp "${TMPDIR:-/tmp}/recall-uninstall.XXXXXX") \
         || return 1
-    sed '/^# >>> recall installer >>>$/,/^# <<< recall installer <<<$/{d;}' \
+    sed -e '/^# >>> recall installer >>>$/,/^# <<< recall installer <<<$/{d;}' \
+        -e '/^# >>> recall setup bootstrap >>>$/,/^# <<< recall setup bootstrap <<<$/{d;}' \
+        -e '/^# >>> recall setup integration >>>$/,/^# <<< recall setup integration <<<$/{d;}' \
         "$file" > "$temp_file"
     cat "$temp_file" > "$file"
     rm -f "$temp_file"
@@ -48,9 +57,9 @@ if command -v recall >/dev/null 2>&1; then
 fi
 
 if [ -n "${HOME:-}" ]; then
-    remove_managed_setup "${ZDOTDIR:-$HOME}/.zshrc"
-    remove_managed_setup "$HOME/.bashrc"
-    remove_managed_setup "${XDG_CONFIG_HOME:-$HOME/.config}/fish/config.fish"
+    remove_managed_setup "${ZDOTDIR:-$HOME}/.zshrc" zsh
+    remove_managed_setup "$HOME/.bashrc" bash
+    remove_managed_setup "${XDG_CONFIG_HOME:-$HOME/.config}/fish/config.fish" fish
 fi
 
 binary_found=0

@@ -7,25 +7,55 @@
 
 $ErrorActionPreference = 'Stop'
 
-$markerStart = '# >>> recall installer >>>'
-$markerEnd = '# <<< recall installer <<<'
+$markerPairs = @{
+    '# >>> recall installer >>>' = '# <<< recall installer <<<'
+    '# >>> recall setup bootstrap >>>' = '# <<< recall setup bootstrap <<<'
+    '# >>> recall setup integration >>>' = '# <<< recall setup integration <<<'
+}
 
 function Say($message) { Write-Host $message }
 
 function Remove-ManagedBlock($path) {
     if (-not $path -or -not (Test-Path -LiteralPath $path)) { return }
     $lines = @(Get-Content -LiteralPath $path -ErrorAction SilentlyContinue)
-    if ($lines -notcontains $markerStart) { return }
+    $hasManagedBlock = $false
+    foreach ($line in $lines) {
+        if ($markerPairs.ContainsKey($line.Trim())) {
+            $hasManagedBlock = $true
+            break
+        }
+    }
+    if (-not $hasManagedBlock) { return }
+
+    $recall = Get-Command recall -ErrorAction SilentlyContinue
+    if ($recall) {
+        & $recall.Source setup pwsh --profile $path --remove 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Say "Removed recall-managed setup from $path"
+            return
+        }
+    }
 
     $kept = New-Object System.Collections.Generic.List[string]
-    $skip = $false
+    $expectedEnd = $null
     foreach ($line in $lines) {
-        if ($line.Trim() -eq $markerStart) { $skip = $true; continue }
-        if ($line.Trim() -eq $markerEnd) { $skip = $false; continue }
-        if (-not $skip) { $kept.Add($line) }
+        $trimmed = $line.Trim()
+        if ($expectedEnd) {
+            if ($trimmed -eq $expectedEnd) { $expectedEnd = $null }
+            continue
+        }
+        if ($markerPairs.ContainsKey($trimmed)) {
+            $expectedEnd = $markerPairs[$trimmed]
+            continue
+        }
+        $kept.Add($line)
+    }
+    if ($expectedEnd) {
+        Say "Could not safely remove malformed recall setup from $path"
+        return
     }
     Set-Content -LiteralPath $path -Value $kept
-    Say "Removed installer-managed setup from $path"
+    Say "Removed recall-managed setup from $path"
 }
 
 foreach ($profilePath in @($PROFILE.CurrentUserAllHosts, $PROFILE.CurrentUserCurrentHost)) {
