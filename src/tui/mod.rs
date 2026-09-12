@@ -1,4 +1,5 @@
 mod app;
+pub(crate) mod config;
 mod runtime;
 mod ui;
 

@@ -7,7 +7,9 @@ mod setup;
 mod shell;
 mod update;
 
-use anyhow::Result;
+use std::io::IsTerminal;
+
+use anyhow::{Result, bail};
 
 use crate::cli::{Cli, Command, ConfigAction, ConfigArgs, SearchArgs};
 use crate::config::Config;
@@ -45,14 +47,22 @@ pub fn new_id() -> String {
 
 fn config(args: ConfigArgs) -> Result<()> {
     match args.action {
-        ConfigAction::Path => {
+        None => {
+            if !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() {
+                bail!(
+                    "interactive configuration requires a terminal; use `recall config show`, `path`, or `default`"
+                );
+            }
+            crate::tui::config::run(Config::load()?)?;
+        }
+        Some(ConfigAction::Path) => {
             println!("{}", Config::config_path().display());
         }
-        ConfigAction::Show => {
+        Some(ConfigAction::Show) => {
             let cfg = Config::load()?;
             print!("{}", toml::to_string_pretty(&cfg)?);
         }
-        ConfigAction::Default => {
+        Some(ConfigAction::Default) => {
             let cfg = Config::default();
             print!("{}", toml::to_string_pretty(&cfg)?);
         }
