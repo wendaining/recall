@@ -1,9 +1,9 @@
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
 
+use crate::atomic_file;
 use crate::cli::{SetupArgs, SetupMode};
 use crate::shell::Shell;
 use crate::util;
@@ -414,72 +414,8 @@ fn quote_powershell(value: &str) -> String {
 }
 
 fn write_profile(path: &Path, original: &ProfileText, text: &str) -> Result<()> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| anyhow!("startup file has no parent: {}", path.display()))?;
-    fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
     let bytes = encode_text(text, original.encoding, original.newline);
-    let permissions = fs::metadata(path)
-        .ok()
-        .map(|metadata| metadata.permissions());
-
-    let mut temp_path = None;
-    for attempt in 0..100 {
-        let candidate = parent.join(format!(
-            ".recall-setup-{}-{attempt}.tmp",
-            std::process::id()
-        ));
-        match OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&candidate)
-        {
-            Ok(mut file) => {
-                file.write_all(&bytes)?;
-                file.sync_all()?;
-                if let Some(permissions) = permissions.clone() {
-                    fs::set_permissions(&candidate, permissions)?;
-                }
-                temp_path = Some(candidate);
-                break;
-            }
-            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(err) => return Err(err).context("creating a temporary startup file"),
-        }
-    }
-    let temp_path =
-        temp_path.ok_or_else(|| anyhow!("could not create a temporary startup file"))?;
-    replace_file(&temp_path, path).inspect_err(|_| {
-        let _ = fs::remove_file(&temp_path);
-    })?;
-    Ok(())
-}
-
-#[cfg(not(windows))]
-fn replace_file(from: &Path, to: &Path) -> Result<()> {
-    fs::rename(from, to).with_context(|| format!("replacing {}", to.display()))
-}
-
-#[cfg(windows)]
-fn replace_file(from: &Path, to: &Path) -> Result<()> {
-    use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Storage::FileSystem::{
-        MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
-    };
-
-    let from: Vec<u16> = from.as_os_str().encode_wide().chain(Some(0)).collect();
-    let to: Vec<u16> = to.as_os_str().encode_wide().chain(Some(0)).collect();
-    let result = unsafe {
-        MoveFileExW(
-            from.as_ptr(),
-            to.as_ptr(),
-            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-        )
-    };
-    if result == 0 {
-        return Err(std::io::Error::last_os_error()).context("replacing the startup file");
-    }
-    Ok(())
+    atomic_file::replace(path, &bytes, "setup")
 }
 
 #[cfg(test)]
