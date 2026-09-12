@@ -134,20 +134,15 @@ impl Default for Ui {
 }
 
 impl Config {
-    /// Path of the config file.
+    /// Path of the active config file. `RECALL_CONFIG` overrides the default.
     pub fn config_path() -> PathBuf {
-        dirs::config_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("recall")
-            .join("config.toml")
+        config_path_from(std::env::var_os("RECALL_CONFIG"))
     }
 
     /// Load configuration from the default path, falling back to defaults if
     /// the file does not exist. `RECALL_CONFIG` overrides the path.
     pub fn load() -> Result<Self> {
-        let path = std::env::var_os("RECALL_CONFIG")
-            .map(PathBuf::from)
-            .unwrap_or_else(Self::config_path);
+        let path = Self::config_path();
         if !path.exists() {
             return Ok(Self::default());
         }
@@ -169,6 +164,15 @@ impl Config {
         }
         Ok(value.try_into()?)
     }
+}
+
+fn config_path_from(override_path: Option<std::ffi::OsString>) -> PathBuf {
+    override_path.map(PathBuf::from).unwrap_or_else(|| {
+        dirs::config_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("recall")
+            .join("config.toml")
+    })
 }
 
 pub fn default_data_dir() -> PathBuf {
@@ -242,5 +246,11 @@ mod tests {
 
         assert_eq!(config.general.max_output_bytes, 2048);
         assert!(!toml::to_string(&config).unwrap().contains("atuin_db_path"));
+    }
+
+    #[test]
+    fn config_path_prefers_override() {
+        let path = config_path_from(Some(std::ffi::OsString::from("custom/config.toml")));
+        assert_eq!(path, PathBuf::from("custom/config.toml"));
     }
 }
