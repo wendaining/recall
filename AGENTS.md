@@ -39,8 +39,8 @@ rm -f ~/.local/bin/recall.old
 
 ### Testing installation changes locally
 
-Use the developer-only installer to build the current checkout and exercise the
-post-download installation flow:
+Use the developer-only harness to build the current checkout, package it like a
+release, and run the production installer against that local fixture:
 
 ```sh
 ./scripts/dev-install.sh
@@ -58,18 +58,22 @@ Use `--user` only when a real local installation is intentional:
 ./scripts/dev-install.sh --user --mode hooks
 ```
 
-`--user` installs the current release build into
-`${RECALL_INSTALL_DIR:-$HOME/.local/bin}` and configures the current shell. The
-developer installer never imports history. It supports zsh, bash, and fish on
-Unix; select one explicitly with `--shell` when `$SHELL` is not suitable.
+`--user` gives the production installer the real user environment, including
+its normal destination selection, configuration handling, search-key choice,
+and history-import prompts. `RECALL_INSTALL_DIR` and the other documented
+installer environment variables continue to work. The harness supports the
+Unix installer; select a shell explicitly with `--shell` when `$SHELL` is not
+suitable.
 
-Keep `scripts/dev-install.sh` independent from the production `install.sh`: the
-two scripts must not call or source each other. Shared installation behavior
-belongs in the `recall setup` and `recall config` Rust commands rather than
-duplicated shell fragments. The developer installer validates a build from the
-current checkout, while GitHub API access, release downloads, and checksum
-verification remain responsibilities of the production installer and release
-CI.
+Keep the production `install.sh` independent from development concerns: do not
+add local-build switches to it or make it source the developer harness. The
+harness intentionally invokes the unchanged production installer with a local
+GitHub API, archive, and checksum substitute. This exercises the same logo,
+archive extraction, checksum verification, setup, configuration, prompts, and
+summary that users see without making GitHub requests. Shared post-install
+behavior belongs in the `recall setup` and `recall config` Rust commands rather
+than duplicated shell fragments. Live GitHub networking and published release
+assets remain responsibilities of release CI.
 
 ## Architecture
 
