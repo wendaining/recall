@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/recall-logo.png" alt="recall logo" width="180" />
+</p>
+
 # recall
 
 [English](README.md) | 简体中文
@@ -11,7 +15,9 @@
 TUI 中浏览这些历史——每次执行都是一个独立的 *block*。它不改动你的终端模拟器，
 也不重新实现一个：它是一个 shell 侧工具，通过 PTY 透明地代理你的 shell。
 
-<img zoom="35%" alt="recall-display" src="https://github.com/user-attachments/assets/835ef068-b4d9-41e2-b5a6-738d5d58f01f" />
+<p align="center">
+  <img src="docs/recall-display.png" alt="recall display" width="800" />
+</p>
 
 ## 安装
 
