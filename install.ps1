@@ -7,19 +7,33 @@
 #     RECALL_INSTALL_DIR        install directory (default: $HOME\.local\bin)
 #     RECALL_VERSION            release tag to install (default: latest)
 #     RECALL_NO_MODIFY_PROFILE  set to skip $PROFILE changes
+#     RECALL_PROXY_SETUP        auto, hooks, or terminal (default: auto)
 #     RECALL_IMPORT_HISTORY     yes, no, or ask (default: ask)
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 $repo = 'wendaining/recall'
-$markerStart = '# >>> recall installer >>>'
-$markerEnd = '# <<< recall installer <<<'
-
 function Say($message) { Write-Host $message }
 function Die($message) {
     Write-Error "recall installer: $message"
     exit 1
+}
+
+function Resolve-ProxySetup {
+    $value = if ($env:RECALL_PROXY_SETUP) {
+        $env:RECALL_PROXY_SETUP.ToLowerInvariant()
+    } else {
+        'auto'
+    }
+    switch ($value) {
+        'auto' { return 'auto' }
+        'shell' { return 'auto' }
+        'hooks' { return 'hooks' }
+        'none' { return 'hooks' }
+        'terminal' { return 'terminal' }
+        default { Die 'RECALL_PROXY_SETUP must be auto, hooks, or terminal' }
+    }
 }
 
 function Should-ImportHistory($label, $path) {
@@ -157,31 +171,14 @@ try {
         $env:Path = "$installDir;$env:Path"
     }
 
+    $proxySetup = Resolve-ProxySetup
+    $shellConfigured = $false
     if (-not $env:RECALL_NO_MODIFY_PROFILE) {
         $profilePath = $PROFILE.CurrentUserCurrentHost
-        $profileDir = Split-Path -Parent $profilePath
-        if ($profileDir) { New-Item -ItemType Directory -Path $profileDir -Force | Out-Null }
-        if (-not (Test-Path $profilePath)) { New-Item -ItemType File -Path $profilePath -Force | Out-Null }
-
-        $lines = @(Get-Content -LiteralPath $profilePath -ErrorAction SilentlyContinue)
-        $kept = New-Object System.Collections.Generic.List[string]
-        $skip = $false
-        foreach ($line in $lines) {
-            if ($line.Trim() -eq $markerStart) { $skip = $true; continue }
-            if ($line.Trim() -eq $markerEnd) { $skip = $false; continue }
-            if (-not $skip) { $kept.Add($line) }
-        }
-        $escapedDir = $installDir.Replace("'", "''")
-        $block = @(
-            ''
-            $markerStart
-            "`$env:Path = '$escapedDir;' + `$env:Path"
-            'recall init pwsh | Out-String | Invoke-Expression'
-            $markerEnd
-        )
-        foreach ($line in $block) { $kept.Add($line) }
-        Set-Content -LiteralPath $profilePath -Value $kept
-        Say "Shell integration: $profilePath"
+        $setupMode = if ($proxySetup -eq 'terminal') { 'hooks' } else { $proxySetup }
+        & $destination setup pwsh --mode $setupMode --profile $profilePath
+        if ($LASTEXITCODE -ne 0) { Die "failed to configure $profilePath" }
+        $shellConfigured = $true
     } else {
         Say 'Shell integration: skipped (RECALL_NO_MODIFY_PROFILE)'
     }
@@ -216,8 +213,19 @@ try {
     Say 'recall is ready.'
     Say ''
     Say "Installed: $(& $destination --version) at $destination"
-    Say "Start a proxied shell with: recall shell"
+    if (-not $shellConfigured) {
+        Say "Output: not configured; run 'recall shell' manually"
+    } elseif ($proxySetup -eq 'auto') {
+        Say 'Output: automatic capture in new interactive shells'
+        Say "Alternative: run 'recall setup pwsh --mode hooks' for hooks only"
+    } elseif ($proxySetup -eq 'hooks') {
+        Say "Output: hooks only; run 'recall shell' when capture is needed"
+    } else {
+        Say 'Output: terminal-managed compatibility mode'
+        Say "Set the Windows Terminal profile's Command line to: $destination shell"
+    }
     Say 'Open a new terminal, then run recall or press Alt+R to browse history.'
+    Say "Before capturing sensitive work, review: $configPath"
 } finally {
     Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
 }
