@@ -60,6 +60,24 @@ function Offer-HistoryImport($kind, $shell, $path, $label) {
     }
 }
 
+function Show-Logo {
+    @(
+        '             .-=================-.'
+        "          .-'                     ``-."
+        "        .'       +----------+        ``."
+        '       /        /    >_      \         \'
+        '      ;        |      _       |         ;'
+        '      |        |              |         |'
+        '      ;        |              |         ;'
+        '       \        \            /         /'
+        "        ``.       +----------+        .'"
+        "          ``-.                     _.-'"
+        "             ``-=================-'"
+    ) | ForEach-Object { Write-Host $_ }
+}
+
+Show-Logo
+
 # GitHub requires TLS 1.2, which older Windows PowerShell does not negotiate by
 # default.
 try {

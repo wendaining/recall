@@ -31,6 +31,24 @@ require dirname
 require grep
 require cat
 
+show_logo() {
+    cat <<'EOF'
+             .-=================-.
+          .-'                     `-.
+        .'       +----------+        `.
+       /        /    >_      \         \
+      ;        |      _       |         ;
+      |        |              |         |
+      ;        |              |         ;
+       \        \            /         /
+        `.       +----------+        .'
+          `-.                     _.-'
+             `-=================-'
+EOF
+}
+
+show_logo
+
 os=$(uname -s)
 arch=$(uname -m)
 
