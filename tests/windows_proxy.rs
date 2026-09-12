@@ -115,6 +115,80 @@ fn conpty_forwards_special_keys_and_exits_cleanly() {
     let _ = std::fs::remove_dir_all(test_dir);
 }
 
+#[test]
+fn config_tui_accepts_input_and_exits_cleanly_in_conpty() {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let test_dir = std::env::temp_dir().join(format!(
+        "recall-config-conpty-{}-{nonce}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&test_dir).unwrap();
+    let config_path = test_dir.join("config.toml");
+    std::fs::write(&config_path, "[ui]\nsearch_key = \"alt-r\"\n").unwrap();
+
+    let pair = native_pty_system()
+        .openpty(PtySize {
+            rows: 30,
+            cols: 100,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .unwrap();
+    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_recall"));
+    command.arg("config");
+    command.env("RECALL_CONFIG", &config_path);
+
+    let mut child = pair.slave.spawn_command(command).unwrap();
+    drop(pair.slave);
+    let mut reader = pair.master.try_clone_reader().unwrap();
+    let writer = Arc::new(Mutex::new(pair.master.take_writer().unwrap()));
+    let master = pair.master;
+    let output = Arc::new(Mutex::new(Vec::new()));
+    let reader_output = output.clone();
+    let reader_thread = thread::spawn(move || {
+        let mut chunk = [0u8; 4096];
+        loop {
+            match reader.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(count) => reader_output
+                    .lock()
+                    .unwrap()
+                    .extend_from_slice(&chunk[..count]),
+                Err(_) => break,
+            }
+        }
+    });
+
+    require_occurrences(&output, "Categories", 1, &mut child);
+    write_input(&writer, b"q");
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let status = loop {
+        match child.try_wait().unwrap() {
+            Some(status) => break status,
+            None if Instant::now() < deadline => thread::sleep(Duration::from_millis(25)),
+            None => {
+                let snapshot = output_text(&output);
+                let _ = child.kill();
+                panic!("config TUI did not exit after q:\n{snapshot}");
+            }
+        }
+    };
+
+    assert_eq!(status.exit_code(), 0, "{}", output_text(&output));
+    drop(writer);
+    drop(master);
+    reader_thread.join().unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&config_path).unwrap(),
+        "[ui]\nsearch_key = \"alt-r\"\n"
+    );
+    let _ = std::fs::remove_dir_all(test_dir);
+}
+
 fn write_input(writer: &Arc<Mutex<Box<dyn Write + Send>>>, bytes: &[u8]) {
     let mut writer = writer.lock().unwrap();
     writer.write_all(bytes).unwrap();
