@@ -17,7 +17,7 @@ const INTEGRATION_NO_EOL_END: &str = "# <<< recall setup integration-no-eol <<<"
 const LEGACY_START: &str = "# >>> recall installer >>>";
 const LEGACY_END: &str = "# <<< recall installer <<<";
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ManagedSetup {
     Auto,
     Hooks,
@@ -28,7 +28,7 @@ pub(crate) enum ManagedSetup {
     Invalid,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ProfileInspection {
     pub(crate) setup: ManagedSetup,
     pub(crate) init_count: usize,
@@ -49,31 +49,29 @@ struct ProfileText {
 }
 
 pub fn run(args: SetupArgs) -> Result<()> {
-    let shell = resolve_shell(args.shell.as_deref())?;
-    let profile = args
-        .profile
-        .or_else(|| shell.rc_path())
-        .ok_or_else(|| anyhow!("could not determine the startup file for {}", shell.name))?;
+    let result = apply(args.shell.as_deref(), args.profile, args.mode, args.remove)?;
 
     if args.remove {
-        let changed = update_profile(&profile, shell, args.mode, true)?;
         println!(
             "shell setup: {} ({})",
-            profile.display(),
-            if changed { "removed" } else { "not present" }
+            result.profile.display(),
+            if result.changed {
+                "removed"
+            } else {
+                "not present"
+            }
         );
         return Ok(());
     }
 
-    let changed = update_profile(&profile, shell, args.mode, false)?;
     println!(
         "shell setup: {} ({}; {})",
-        profile.display(),
+        result.profile.display(),
         match args.mode {
             SetupMode::Auto => "automatic output capture",
             SetupMode::Hooks => "hooks only",
         },
-        if changed {
+        if result.changed {
             "updated"
         } else {
             "already current"
@@ -85,6 +83,34 @@ pub fn run(args: SetupArgs) -> Result<()> {
         );
     }
     Ok(())
+}
+
+pub(crate) struct SetupResult {
+    pub(crate) profile: PathBuf,
+    pub(crate) changed: bool,
+}
+
+pub(crate) fn apply(
+    shell_name: Option<&str>,
+    profile: Option<PathBuf>,
+    mode: SetupMode,
+    remove: bool,
+) -> Result<SetupResult> {
+    let shell = resolve_shell(shell_name)?;
+    let profile = profile
+        .or_else(|| shell.rc_path())
+        .ok_or_else(|| anyhow!("could not determine the startup file for {}", shell.name))?;
+    let changed = update_profile(&profile, shell, mode, remove)?;
+    Ok(SetupResult { profile, changed })
+}
+
+pub(crate) fn inspect_shell(shell_name: &str) -> Result<(PathBuf, ProfileInspection)> {
+    let shell = resolve_shell(Some(shell_name))?;
+    let profile = shell
+        .rc_path()
+        .ok_or_else(|| anyhow!("could not determine the startup file for {}", shell.name))?;
+    let inspection = inspect_profile(&profile)?;
+    Ok((profile, inspection))
 }
 
 pub(crate) fn inspect_profile(path: &Path) -> Result<ProfileInspection> {
@@ -552,6 +578,22 @@ mod tests {
         assert!(update_profile(&path, shell, SetupMode::Auto, true).unwrap());
         assert_eq!(fs::read_to_string(&path).unwrap(), "echo user\n");
         assert!(!update_profile(&path, shell, SetupMode::Auto, true).unwrap());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn shared_apply_api_updates_an_explicit_profile() {
+        let (path, dir) = temp_profile("shared-api");
+        fs::write(&path, "echo user\n").unwrap();
+
+        let result = apply(Some("zsh"), Some(path.clone()), SetupMode::Hooks, false).unwrap();
+
+        assert_eq!(result.profile, path);
+        assert!(result.changed);
+        assert_eq!(
+            inspect_profile(&result.profile).unwrap().setup,
+            ManagedSetup::Hooks
+        );
         fs::remove_dir_all(dir).unwrap();
     }
 

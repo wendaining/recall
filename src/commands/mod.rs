@@ -3,7 +3,7 @@ mod import;
 mod init;
 mod proxy;
 mod record;
-mod setup;
+pub(crate) mod setup;
 mod shell;
 mod update;
 

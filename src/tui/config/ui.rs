@@ -129,11 +129,45 @@ fn setting_rows(app: &App) -> Vec<(String, String)> {
         Category::Shell => vec![
             ("Detected shell".to_string(), app.shell_name.clone()),
             (
-                "Proxy active".to_string(),
-                on_off(std::env::var_os("RECALL_PROXY_ACTIVE").is_some()),
+                "Startup file".to_string(),
+                app.shell_profile
+                    .as_ref()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_else(|| "Unavailable".to_string()),
             ),
-            ("Setup mode".to_string(), "checking profile…".to_string()),
+            ("Current setup".to_string(), shell_setup_label(app)),
+            (
+                "Runtime".to_string(),
+                format!(
+                    "hooks {} · proxy {}",
+                    on_off(std::env::var_os("RECALL_SESSION").is_some()),
+                    on_off(std::env::var_os("RECALL_PROXY_ACTIVE").is_some())
+                ),
+            ),
+            ("Use automatic capture".to_string(), "Apply".to_string()),
+            ("Use hooks only".to_string(), "Apply".to_string()),
+            ("Remove integration".to_string(), "Confirm…".to_string()),
         ],
+    }
+}
+
+fn shell_setup_label(app: &App) -> String {
+    if let Some(error) = &app.shell_error {
+        return format!("Error: {error}");
+    }
+    match app.shell_setup {
+        Some(crate::commands::setup::ManagedSetup::Auto) => "Automatic capture".to_string(),
+        Some(crate::commands::setup::ManagedSetup::Hooks) => "Hooks only".to_string(),
+        Some(crate::commands::setup::ManagedSetup::LegacyAuto) => {
+            "Legacy automatic setup".to_string()
+        }
+        Some(crate::commands::setup::ManagedSetup::LegacyHooks) => "Legacy hooks setup".to_string(),
+        Some(crate::commands::setup::ManagedSetup::UnmanagedHooks) => "Unmanaged hooks".to_string(),
+        Some(crate::commands::setup::ManagedSetup::None) => "Not configured".to_string(),
+        Some(crate::commands::setup::ManagedSetup::Invalid) => {
+            "Malformed recall markers — repair manually".to_string()
+        }
+        None => "Unavailable".to_string(),
     }
 }
 
@@ -231,6 +265,17 @@ fn draw_modal(frame: &mut Frame, modal: &Modal) {
                     super::app::date_preview(input)
                 ))
                 .block(Block::bordered().title(" Custom timestamp format "))
+                .wrap(Wrap { trim: false }),
+                area,
+            );
+        }
+        Modal::RemoveSetup { profile } => {
+            frame.render_widget(
+                Paragraph::new(format!(
+                    "Remove recall-managed setup from this startup file?\n\n{}\n\nEnter/y confirm · Esc/n cancel",
+                    profile.display()
+                ))
+                .block(Block::bordered().title(" Remove shell integration "))
                 .wrap(Wrap { trim: false }),
                 area,
             );

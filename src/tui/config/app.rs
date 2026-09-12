@@ -1,5 +1,8 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use std::path::PathBuf;
 
+use crate::cli::SetupMode;
+use crate::commands::setup::{self, ManagedSetup};
 use crate::config::{Config, ConfigStore};
 use crate::shell::Shell;
 
@@ -45,7 +48,7 @@ impl Category {
             Self::Keybinding => 1,
             Self::Capture => 4,
             Self::Appearance => 3,
-            Self::Shell => 3,
+            Self::Shell => 7,
         }
     }
 }
@@ -63,6 +66,9 @@ pub(crate) enum Modal {
     },
     DateEditor {
         input: String,
+    },
+    RemoveSetup {
+        profile: PathBuf,
     },
     RuleEditor {
         target: RuleTarget,
@@ -103,22 +109,31 @@ pub(crate) struct App {
     pub(crate) status_is_error: bool,
     pub(crate) modal: Option<Modal>,
     pub(crate) shell_name: String,
+    pub(crate) shell_profile: Option<PathBuf>,
+    pub(crate) shell_setup: Option<ManagedSetup>,
+    pub(crate) shell_error: Option<String>,
     store: ConfigStore,
 }
 
 impl App {
     pub(crate) fn new(config: Config) -> Self {
         let shell_name = crate::util::login_shell();
+        let (shell_profile, shell_setup, shell_error) = inspect_shell(&shell_name);
+        let needs_shell_attention =
+            !matches!(shell_setup, Some(ManagedSetup::Auto | ManagedSetup::Hooks));
         Self {
             config,
-            category: 0,
-            selected: 0,
+            category: if needs_shell_attention { 3 } else { 0 },
+            selected: if needs_shell_attention { 4 } else { 0 },
             should_quit: false,
             show_help: false,
             status: None,
             status_is_error: false,
             modal: None,
             shell_name,
+            shell_profile,
+            shell_setup,
+            shell_error,
             store: ConfigStore::active(),
         }
     }
@@ -266,6 +281,21 @@ impl App {
                     input: self.config.ui.date_format.clone(),
                 });
                 self.status = None;
+            }
+            return;
+        }
+        if self.current_category() == Category::Shell {
+            match self.selected {
+                4 => self.apply_shell_setup(SetupMode::Auto, false),
+                5 => self.apply_shell_setup(SetupMode::Hooks, false),
+                6 => {
+                    if let Some(profile) = self.shell_profile.clone() {
+                        self.modal = Some(Modal::RemoveSetup { profile });
+                    } else {
+                        self.set_error("cannot determine this shell's startup file".to_string());
+                    }
+                }
+                _ => self.set_error("select a setup action below".to_string()),
             }
             return;
         }
@@ -431,6 +461,13 @@ impl App {
                     input.push(character);
                     self.modal = Some(modal);
                 }
+                _ => self.modal = Some(modal),
+            },
+            Modal::RemoveSetup { profile: _ } => match key.code {
+                KeyCode::Enter | KeyCode::Char('y') => {
+                    self.apply_shell_setup(SetupMode::Auto, true);
+                }
+                KeyCode::Esc | KeyCode::Char('n') => {}
                 _ => self.modal = Some(modal),
             },
             Modal::RuleEditor {
@@ -599,6 +636,42 @@ impl App {
         }
     }
 
+    fn apply_shell_setup(&mut self, mode: SetupMode, remove: bool) {
+        match setup::apply(Some(&self.shell_name), None, mode, remove) {
+            Ok(result) => {
+                let changed = result.changed;
+                self.refresh_shell_setup();
+                self.set_saved(if remove {
+                    if changed {
+                        "shell integration removed".to_string()
+                    } else {
+                        "shell integration was not present".to_string()
+                    }
+                } else {
+                    format!(
+                        "{} shell setup {}",
+                        match mode {
+                            SetupMode::Auto => "automatic",
+                            SetupMode::Hooks => "hooks-only",
+                        },
+                        if changed { "saved" } else { "already current" }
+                    )
+                });
+            }
+            Err(err) => {
+                self.refresh_shell_setup();
+                self.set_error(format!("failed to update shell setup: {err}"));
+            }
+        }
+    }
+
+    fn refresh_shell_setup(&mut self) {
+        let (profile, setup, error) = inspect_shell(&self.shell_name);
+        self.shell_profile = profile;
+        self.shell_setup = setup;
+        self.shell_error = error;
+    }
+
     fn set_saved(&mut self, status: String) {
         self.status = Some(status);
         self.status_is_error = false;
@@ -607,6 +680,13 @@ impl App {
     fn set_error(&mut self, status: String) {
         self.status = Some(status);
         self.status_is_error = true;
+    }
+}
+
+fn inspect_shell(shell_name: &str) -> (Option<PathBuf>, Option<ManagedSetup>, Option<String>) {
+    match setup::inspect_shell(shell_name) {
+        Ok((profile, inspection)) => (Some(profile), Some(inspection.setup), None),
+        Err(err) => (None, None, Some(err.to_string())),
     }
 }
 
@@ -704,10 +784,12 @@ mod tests {
     #[test]
     fn navigates_categories_and_rows() {
         let mut app = App::new(Config::default());
+        app.category = 0;
+        app.selected = 0;
         app.handle_key(key(KeyCode::BackTab));
         assert_eq!(app.current_category(), Category::Shell);
         app.handle_key(key(KeyCode::Up));
-        assert_eq!(app.selected, 2);
+        assert_eq!(app.selected, 6);
         app.handle_key(key(KeyCode::Tab));
         assert_eq!(app.current_category(), Category::Keybinding);
         assert_eq!(app.selected, 0);
@@ -854,5 +936,15 @@ mod tests {
         assert!(app.status_is_error);
         assert!(!valid_date_format("%Q"));
         assert!(valid_date_format("%Y-%m-%d"));
+    }
+
+    #[test]
+    fn shell_setup_defaults_to_attention_when_not_configured() {
+        let mut app = App::new(Config::default());
+        app.shell_setup = Some(ManagedSetup::None);
+        app.category = 3;
+        app.selected = 4;
+        assert_eq!(app.current_category(), Category::Shell);
+        assert_eq!(app.row_count(), 7);
     }
 }
