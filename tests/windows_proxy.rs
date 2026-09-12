@@ -148,16 +148,30 @@ fn config_tui_accepts_input_and_exits_cleanly_in_conpty() {
     let master = pair.master;
     let output = Arc::new(Mutex::new(Vec::new()));
     let reader_output = output.clone();
+    let terminal_writer = writer.clone();
     let reader_thread = thread::spawn(move || {
         let mut chunk = [0u8; 4096];
+        let mut cursor_queries_answered = 0;
         loop {
-            match reader.read(&mut chunk) {
+            let count = match reader.read(&mut chunk) {
                 Ok(0) => break,
-                Ok(count) => reader_output
-                    .lock()
-                    .unwrap()
-                    .extend_from_slice(&chunk[..count]),
+                Ok(count) => count,
                 Err(_) => break,
+            };
+            let cursor_queries = {
+                let mut output = reader_output.lock().unwrap();
+                output.extend_from_slice(&chunk[..count]);
+                output
+                    .windows(b"\x1b[6n".len())
+                    .filter(|window| *window == b"\x1b[6n")
+                    .count()
+            };
+            while cursor_queries_answered < cursor_queries {
+                let mut writer = terminal_writer.lock().unwrap();
+                if writer.write_all(b"\x1b[1;1R").is_err() || writer.flush().is_err() {
+                    return;
+                }
+                cursor_queries_answered += 1;
             }
         }
     });
