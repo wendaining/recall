@@ -4,12 +4,64 @@ set -eu
 
 repo="wendaining/recall"
 
+style_reset=""
+style_bold=""
+style_dim=""
+style_cyan=""
+style_green=""
+style_yellow=""
+style_error_red=""
+style_error_reset=""
+escape=$(printf '\033')
+if [ -t 1 ] \
+    && [ "${TERM:-dumb}" != dumb ] \
+    && [ -z "${NO_COLOR:-}" ] \
+    && [ "${CLICOLOR:-1}" != 0 ]; then
+    style_reset="${escape}[0m"
+    style_bold="${escape}[1m"
+    style_dim="${escape}[2m"
+    style_cyan="${escape}[36m"
+    style_green="${escape}[32m"
+    style_yellow="${escape}[33m"
+fi
+if [ -t 2 ] \
+    && [ "${TERM:-dumb}" != dumb ] \
+    && [ -z "${NO_COLOR:-}" ] \
+    && [ "${CLICOLOR:-1}" != 0 ]; then
+    style_error_red="${escape}[31m"
+    style_error_reset="${escape}[0m"
+fi
+
 say() {
     printf '%s\n' "$*"
 }
 
+step() {
+    printf '%s›%s %s%s%s\n' \
+        "$style_cyan" "$style_reset" "$style_bold" "$*" "$style_reset"
+}
+
+success() {
+    printf '%s✓%s %s\n' "$style_green" "$style_reset" "$*"
+}
+
+warning() {
+    printf '%s!%s %s\n' "$style_yellow" "$style_reset" "$*"
+}
+
+summary() {
+    summary_label=$1
+    shift
+    printf '  %s%-13s%s %s\n' "$style_cyan" "$summary_label" "$style_reset" "$*"
+}
+
+muted() {
+    printf '%s%s%s\n' "$style_dim" "$*" "$style_reset"
+}
+
 die() {
-    printf 'recall installer: %s\n' "$*" >&2
+    printf '%s✗%s recall installer: %s\n' \
+        "$style_error_red" "$style_error_reset" "$*" >&2
     exit 1
 }
 
@@ -31,6 +83,7 @@ require dirname
 require cat
 
 show_logo() {
+    printf '%s' "$style_cyan"
     cat <<'EOF'
              .-=================-.
           .-'                     `-.
@@ -44,6 +97,7 @@ show_logo() {
           `-.                     _.-'
              `-=================-'
 EOF
+    printf '%s' "$style_reset"
 }
 
 show_logo
@@ -91,7 +145,7 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
-say "Installing recall $tag for $target..."
+step "Installing recall $tag for $target..."
 curl -fL --retry 3 --progress-bar \
     -o "$temp_dir/$archive" "$download_url/$archive" \
     || die "failed to download $archive"
@@ -108,7 +162,7 @@ case "$os" in
     Darwin) actual=$(shasum -a 256 "$temp_dir/$archive" | awk '{print $1}') ;;
 esac
 [ "$actual" = "$expected" ] || die "checksum mismatch for $archive"
-say "Checksum verified."
+success "Checksum verified."
 
 tar -xzf "$temp_dir/$archive" -C "$temp_dir"
 [ -f "$temp_dir/recall" ] || die "archive does not contain the recall binary"
@@ -243,12 +297,12 @@ offer_history_import() {
         if "$destination" import atuin --path "$import_path"; then
             say "Imported $import_label."
         else
-            say "Warning: could not import $import_label; installation will continue."
+            warning "Could not import $import_label; installation will continue."
         fi
     elif "$destination" import history "$import_shell" --path "$import_path"; then
         say "Imported $import_label."
     else
-        say "Warning: could not import $import_label; installation will continue."
+        warning "Could not import $import_label; installation will continue."
     fi
 }
 
@@ -302,46 +356,47 @@ fi
 offer_detected_history
 
 say ""
-say "recall is ready."
+success "recall is ready."
 say ""
-say "Installed:     $("$destination" --version) at $destination"
+summary "Installed:" "$("$destination" --version) at $destination"
 if [ "$shell_configured" -eq 1 ]; then
-    say "Shell setup:  $profile_path"
+    summary "Shell setup:" "$profile_path"
 else
-    say "Shell setup:  skipped (supported shells: zsh, bash, fish)"
+    summary "Shell setup:" "skipped (supported shells: zsh, bash, fish)"
 fi
 if [ "$config_created" -eq 1 ]; then
-    say "Config:       created $config_path"
+    summary "Config:" "created $config_path"
 else
-    say "Config:       kept existing $config_path"
+    summary "Config:" "kept existing $config_path"
 fi
 if [ "$shell_configured" -eq 0 ]; then
-    say "Output:       not configured; run 'recall shell' manually"
+    summary "Output:" "not configured; run 'recall shell' manually"
 else
     case "$proxy_setup" in
         auto)
-            say "Output:       automatic capture in new interactive shells"
-            say "Alternative:  run 'recall setup $shell_name --mode hooks' for hooks only"
+            summary "Output:" "automatic capture in new interactive shells"
+            summary "Alternative:" "run 'recall setup $shell_name --mode hooks' for hooks only"
             ;;
         hooks)
-            say "Output:       hooks only; run 'recall shell' when capture is needed"
+            summary "Output:" "hooks only; run 'recall shell' when capture is needed"
             ;;
         terminal)
-            say "Output:       terminal-managed compatibility mode"
+            summary "Output:" "terminal-managed compatibility mode"
             say "              set your terminal's startup command to:"
             say "              $destination shell"
             ;;
     esac
 fi
 say ""
-say "Open a new terminal to activate the setup. Run 'recall' or press"
+step "Open a new terminal to activate the setup."
+say "Run 'recall' or press"
 say "Alt+R to browse history; press F1 inside recall to see all shortcuts."
 if [ "$os" = Darwin ] && [ -z "$search_key" ]; then
     say ""
-    say "macOS note: if Option+R types '®' instead of opening recall, enable"
+    warning "macOS: if Option+R types '®' instead of opening recall, enable"
     say "\"Use Option as Meta key\" in your terminal (Terminal.app, iTerm2, Ghostty)."
 fi
-say "Search key:   ${search_key:-alt-r} (edit [ui].search_key in the config to change it)"
+summary "Search key:" "${search_key:-alt-r} (edit [ui].search_key in the config to change it)"
 say ""
-say "Before capturing sensitive work, review: $config_path"
-say "Uninstall: curl -fsSL https://raw.githubusercontent.com/$repo/master/uninstall.sh | sh"
+warning "Before capturing sensitive work, review: $config_path"
+muted "Uninstall: curl -fsSL https://raw.githubusercontent.com/$repo/master/uninstall.sh | sh"
