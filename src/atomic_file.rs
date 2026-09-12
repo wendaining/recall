@@ -4,6 +4,16 @@ use std::path::Path;
 
 use anyhow::{Context, Result, anyhow};
 
+pub(crate) fn resolve_target(path: &Path) -> Result<std::path::PathBuf> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => fs::canonicalize(path)
+            .with_context(|| format!("resolving file symlink {}", path.display())),
+        Ok(_) => Ok(path.to_path_buf()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(path.to_path_buf()),
+        Err(err) => Err(err).with_context(|| format!("inspecting {}", path.display())),
+    }
+}
+
 /// Replace a file atomically with bytes written to a temporary sibling.
 /// Existing permissions are retained when the destination already exists.
 pub(crate) fn replace(path: &Path, bytes: &[u8], label: &str) -> Result<()> {
@@ -108,6 +118,27 @@ mod tests {
             fs::metadata(&path).unwrap().permissions().mode() & 0o777,
             0o640
         );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolves_a_symlink_without_replacing_it() {
+        use std::os::unix::fs::symlink;
+
+        let (link, dir) = temp_file("symlink");
+        let target = dir.join("target");
+        fs::write(&target, b"before").unwrap();
+        symlink(&target, &link).unwrap();
+        let resolved = resolve_target(&link).unwrap();
+        replace(&resolved, b"after", "test").unwrap();
+        assert!(
+            fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(fs::read(&target).unwrap(), b"after");
         fs::remove_dir_all(dir).unwrap();
     }
 }

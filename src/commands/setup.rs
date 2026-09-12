@@ -114,7 +114,7 @@ pub(crate) fn inspect_shell(shell_name: &str) -> Result<(PathBuf, ProfileInspect
 }
 
 pub(crate) fn inspect_profile(path: &Path) -> Result<ProfileInspection> {
-    let path = resolve_profile_target(path)?;
+    let path = atomic_file::resolve_target(path)?;
     let profile = read_profile(&path)?;
     Ok(inspect_text(&profile.text))
 }
@@ -169,7 +169,7 @@ fn resolve_shell(name: Option<&str>) -> Result<&'static Shell> {
 }
 
 fn update_profile(path: &Path, shell: &Shell, mode: SetupMode, remove: bool) -> Result<bool> {
-    let write_path = resolve_profile_target(path)?;
+    let write_path = atomic_file::resolve_target(path)?;
     let existing = read_profile(&write_path)?;
     let cleaned = remove_managed_blocks(&existing.text)?;
     let rendered = if remove {
@@ -188,16 +188,6 @@ fn update_profile(path: &Path, shell: &Shell, mode: SetupMode, remove: bool) -> 
     }
     write_profile(&write_path, &existing, &rendered)?;
     Ok(true)
-}
-
-fn resolve_profile_target(path: &Path) -> Result<PathBuf> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => fs::canonicalize(path)
-            .with_context(|| format!("resolving startup file symlink {}", path.display())),
-        Ok(_) => Ok(path.to_path_buf()),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(path.to_path_buf()),
-        Err(err) => Err(err).with_context(|| format!("inspecting {}", path.display())),
-    }
 }
 
 fn read_profile(path: &Path) -> Result<ProfileText> {

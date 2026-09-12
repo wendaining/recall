@@ -153,9 +153,12 @@ impl Config {
     }
 
     pub fn load_from(path: &Path) -> Result<Self> {
-        let text = std::fs::read_to_string(path)
-            .with_context(|| format!("reading config {}", path.display()))?;
-        Self::parse(&text).with_context(|| format!("parsing config {}", path.display()))
+        let bytes =
+            std::fs::read(path).with_context(|| format!("reading config {}", path.display()))?;
+        let bytes = bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(&bytes);
+        let text = std::str::from_utf8(bytes)
+            .with_context(|| format!("decoding config {} as UTF-8", path.display()))?;
+        Self::parse(text).with_context(|| format!("parsing config {}", path.display()))
     }
 
     fn parse(text: &str) -> Result<Self> {
@@ -212,20 +215,22 @@ impl ConfigStore {
     }
 
     fn set_value(&self, section: &str, key: &str, value: Value) -> Result<Config> {
-        let original = match std::fs::read(&self.path) {
+        let write_path = atomic_file::resolve_target(&self.path)?;
+        let original = match std::fs::read(&write_path) {
             Ok(bytes) => bytes,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
                 toml::to_string_pretty(&Config::default())?.into_bytes()
             }
             Err(err) => {
-                return Err(err).with_context(|| format!("reading config {}", self.path.display()));
+                return Err(err)
+                    .with_context(|| format!("reading config {}", write_path.display()));
             }
         };
         let (bom, bytes) = original
             .strip_prefix(&[0xef, 0xbb, 0xbf])
             .map_or((false, original.as_slice()), |bytes| (true, bytes));
         let text = std::str::from_utf8(bytes)
-            .with_context(|| format!("decoding config {} as UTF-8", self.path.display()))?;
+            .with_context(|| format!("decoding config {} as UTF-8", write_path.display()))?;
         let crlf = text.contains("\r\n");
         let normalized = if crlf {
             text.replace("\r\n", "\n")
@@ -234,7 +239,7 @@ impl ConfigStore {
         };
         let mut document = normalized
             .parse::<DocumentMut>()
-            .with_context(|| format!("parsing config {}", self.path.display()))?;
+            .with_context(|| format!("parsing config {}", write_path.display()))?;
         let item = document
             .entry(section)
             .or_insert_with(|| Item::Table(Table::new()));
@@ -245,7 +250,7 @@ impl ConfigStore {
 
         let rendered = document.to_string();
         let config = Config::parse(&rendered)
-            .with_context(|| format!("validating config {}", self.path.display()))?;
+            .with_context(|| format!("validating config {}", write_path.display()))?;
         let rendered = if crlf {
             rendered.replace('\n', "\r\n")
         } else {
@@ -256,7 +261,7 @@ impl ConfigStore {
             output.extend_from_slice(&[0xef, 0xbb, 0xbf]);
         }
         output.extend_from_slice(rendered.as_bytes());
-        atomic_file::replace(&self.path, &output, "config")?;
+        atomic_file::replace(&write_path, &output, "config")?;
         Ok(config)
     }
 }
@@ -400,6 +405,31 @@ mod tests {
         let text = std::str::from_utf8(&saved[3..]).unwrap();
         assert!(text.contains("search_key = \"ctrl-t\"\r\n"));
         assert!(!text.replace("\r\n", "").contains('\n'));
+        assert_eq!(Config::load_from(&path).unwrap().ui.search_key, "ctrl-t");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn config_store_updates_a_symlink_target() {
+        use std::os::unix::fs::symlink;
+
+        let (link, dir) = temp_config("symlink");
+        let target = dir.join("managed-config.toml");
+        std::fs::write(&target, "[ui]\nsearch_key = \"alt-r\"\n").unwrap();
+        symlink(&target, &link).unwrap();
+
+        ConfigStore::at(link.clone())
+            .set_string("ui", "search_key", "ctrl-t")
+            .unwrap();
+
+        assert!(
+            std::fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(Config::load_from(&target).unwrap().ui.search_key, "ctrl-t");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
