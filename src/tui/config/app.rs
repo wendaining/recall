@@ -782,6 +782,8 @@ mod tests {
         let config = Config::default();
         std::fs::write(&path, toml::to_string_pretty(&config).unwrap()).unwrap();
         let mut app = App::new(config);
+        app.category = 0;
+        app.selected = 0;
         app.shell_name = "zsh".to_string();
         app.store = ConfigStore::at(path.clone());
         (app, path, dir)

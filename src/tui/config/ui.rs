@@ -356,6 +356,8 @@ mod tests {
         let mut config = crate::config::Config::default();
         config.ui.search_key = "ctrl-t".to_string();
         let mut app = App::new(config);
+        app.category = 0;
+        app.selected = 0;
         let backend = TestBackend::new(100, 30);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|frame| draw(frame, &mut app)).unwrap();
