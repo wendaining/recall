@@ -1,4 +1,4 @@
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
 /// Shell command and output history viewer.
 #[derive(Debug, Parser)]
@@ -18,6 +18,8 @@ pub enum Command {
     Proxy(ProxyArgs),
     /// Print shell integration code: `eval "$(recall init zsh)"`.
     Init(InitArgs),
+    /// Configure automatic output capture and shell integration.
+    Setup(SetupArgs),
     /// Record metadata only, without captured output.
     Record(RecordArgs),
     /// Import metadata from another history source.
@@ -74,6 +76,29 @@ pub struct InitArgs {
     /// Shell to emit integration for.
     #[arg(value_parser = crate::shell::parse_integration_name)]
     pub shell: String,
+}
+
+#[derive(Debug, Args)]
+pub struct SetupArgs {
+    /// Shell to configure (defaults to the login shell).
+    #[arg(value_parser = crate::shell::parse_integration_name)]
+    pub shell: Option<String>,
+    /// Configure automatic capture or install hooks only.
+    #[arg(long, value_enum, default_value_t = SetupMode::Auto)]
+    pub mode: SetupMode,
+    /// Override the shell startup file to update.
+    #[arg(long)]
+    pub profile: Option<std::path::PathBuf>,
+    /// Remove setup managed by recall from the startup file.
+    #[arg(long)]
+    pub remove: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
+pub enum SetupMode {
+    #[default]
+    Auto,
+    Hooks,
 }
 
 #[derive(Debug, Args)]
@@ -142,4 +167,41 @@ pub enum ConfigAction {
     Show,
     /// Print a commented default configuration.
     Default,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn setup_defaults_to_automatic_capture() {
+        let cli = Cli::try_parse_from(["recall", "setup", "zsh"]).unwrap();
+        let Some(Command::Setup(args)) = cli.command else {
+            panic!("expected setup command");
+        };
+        assert_eq!(args.mode, SetupMode::Auto);
+        assert!(!args.remove);
+    }
+
+    #[test]
+    fn setup_accepts_hooks_and_custom_profile() {
+        let cli = Cli::try_parse_from([
+            "recall",
+            "setup",
+            "pwsh",
+            "--mode",
+            "hooks",
+            "--profile",
+            "profile.ps1",
+        ])
+        .unwrap();
+        let Some(Command::Setup(args)) = cli.command else {
+            panic!("expected setup command");
+        };
+        assert_eq!(args.mode, SetupMode::Hooks);
+        assert_eq!(
+            args.profile.unwrap(),
+            std::path::PathBuf::from("profile.ps1")
+        );
+    }
 }

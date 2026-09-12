@@ -3,6 +3,7 @@ mod import;
 mod init;
 mod proxy;
 mod record;
+mod setup;
 mod shell;
 mod update;
 
@@ -23,6 +24,7 @@ pub fn run(cli: Cli) -> Result<()> {
         Some(Command::Shell(args)) => shell::run(args),
         Some(Command::Proxy(args)) => proxy::run(args),
         Some(Command::Init(args)) => init::run(args),
+        Some(Command::Setup(args)) => setup::run(args),
         Some(Command::Record(args)) => record::run(args),
         Some(Command::Import(args)) => import::run(args),
         Some(Command::Doctor) => doctor::run(),
