@@ -34,18 +34,19 @@ the matching binary from the latest GitHub Release, and verifies its SHA-256
 checksum. It then:
 
 - installs recall into `/usr/local/bin` or `~/.local/bin`;
-- adds the shell integration to zsh, bash, or fish automatically;
+- configures zsh, bash, or fish for automatic output capture and search;
 - creates the default `config.toml` without overwriting an existing one;
 - detects existing bash, zsh, fish, and atuin history and asks whether to import
   each source;
-- asks how new terminals should start recall's PTY proxy for automatic output
-  capture. Terminal emulator configuration is recommended; shell startup is
-  available as a fallback.
+- starts recall's PTY proxy automatically in new interactive shells without
+  changing terminal-emulator settings.
 
-For a non-interactive installation, set `RECALL_PROXY_SETUP` to `terminal`,
-`shell`, or `none` on the `sh` command. Set `RECALL_IMPORT_HISTORY` to `yes`,
-`no`, or `ask` to control history migration (`ask` skips prompts when input is
-not interactive).
+Automatic output capture is the default. Set `RECALL_PROXY_SETUP=hooks` for the
+lighter alternative that installs search and metadata hooks but only captures
+output after you run `recall shell`. The legacy values `shell` and `none` remain
+aliases for `auto` and `hooks`; explicit `terminal` mode is retained for
+existing terminal-managed setups. Set `RECALL_IMPORT_HISTORY` to `yes`, `no`,
+or `ask` to control history migration.
 
 ### One-line installer (Windows)
 
@@ -55,10 +56,11 @@ irm https://raw.githubusercontent.com/wendaining/recall/master/install.ps1 | iex
 
 The installer downloads the latest release, verifies its SHA-256 checksum, and
 installs `recall.exe` into `%USERPROFILE%\.local\bin` (override with
-`RECALL_INSTALL_DIR`). It adds that directory to your user `PATH`, appends the
-PowerShell integration to `$PROFILE`, and creates the default `config.toml`.
+`RECALL_INSTALL_DIR`). It adds that directory to your user `PATH`, configures
+`$PROFILE` for automatic output capture, and creates the default `config.toml`.
 It also offers to import detected shell and atuin histories. Set
-`RECALL_NO_MODIFY_PROFILE` to skip the profile change, or
+`RECALL_NO_MODIFY_PROFILE` to skip the profile change,
+`RECALL_PROXY_SETUP=hooks` to install hooks without automatic capture, or
 `RECALL_IMPORT_HISTORY=yes|no|ask` to control migration prompts.
 
 ### Build from source
@@ -132,9 +134,27 @@ a custom `RECALL_INSTALL_DIR`, pass the same variable to the uninstall command.
 > configuration automatically. The manual steps below are mainly for source
 > builds or custom setups.
 
-### 1. Shell integration
+### 1. Unified shell setup
 
-If you built from source, add the matching line to your shell's startup file:
+If you built from source, run the setup command for your shell:
+
+```sh
+recall setup zsh       # or: bash, fish, pwsh, powershell
+```
+
+This configures automatic output capture by default. recall places a small,
+managed bootstrap at the top of the startup file and the integration at the
+end. The outer shell hands off to the PTY proxy before loading the rest of the
+file; the child shell then loads your configuration once and installs the
+hooks after themes, prompts, and PSReadLine are ready.
+
+For search and metadata hooks without automatic capture, use:
+
+```sh
+recall setup zsh --mode hooks
+```
+
+`recall init` remains the low-level option for fully manual setups:
 
 ```zsh
 # ~/.zshrc
@@ -156,9 +176,9 @@ recall init fish | source
 recall init pwsh | Out-String | Invoke-Expression
 ```
 
-This installs the capture hooks and an **Alt+R** widget that opens the TUI and
-inserts the selected command into your prompt. The key is set by
-`[ui].search_key` in the config; see below for details.
+The integration installs command-boundary hooks and an **Alt+R** widget that
+opens the TUI and inserts the selected command into your prompt. The key is set
+by `[ui].search_key` in the config; see below for details.
 
 Without the proxy, recall still records command metadata in the background. To
 capture output, run your shell under the proxy.
@@ -196,24 +216,22 @@ You can also pick another key, for example `"ctrl-x ctrl-r"` (the installer
 offers this on macOS). Run `recall doctor` to confirm the shell integration and
 `PATH`.
 
-### 2. Enable output capture with the PTY proxy
+### 2. Output capture and the PTY proxy
 
-The one-line installer offers two setup methods. Configuring your terminal
-emulator's startup command is recommended. If your terminal does not provide
-that setting, the installer can configure your shell startup file instead.
-Either method starts your usual shell inside recall's PTY proxy so recall can
-save the output associated with each command.
+The installer and `recall setup` start your usual shell inside recall's PTY
+proxy automatically. No terminal-emulator configuration is needed. Set
+`RECALL_PROXY=0` before starting a new shell to bypass automatic capture while
+keeping the search and metadata hooks.
 
-If you skipped the setup or installed from source, start a wrapped shell
-manually:
+In hooks-only or fully manual setups, start a wrapped shell when output capture
+is needed:
 
 ```sh
 recall shell
 ```
 
-or configure your terminal emulator to launch it as the shell, so every new
-window is captured automatically. The setting name varies between emulators
-(`shell`, `command`, …), for example:
+Existing terminal-managed setups may continue launching recall directly, but
+this is an advanced compatibility path rather than the recommended setup:
 
 ```
 # in your terminal emulator's config file
@@ -238,8 +256,7 @@ On Windows the proxy runs the shell under ConPTY. When neither `proxy.shell` nor
 the parent process chain), then falls back to `pwsh`, `powershell`, and
 `%COMSPEC%`. Override with `--shell` or `proxy.shell`, for example
 `recall shell --shell cmd`. The macOS-only `-l` login flag is not used on
-Windows. To capture every Windows Terminal tab automatically, set the profile's
-**Command line** to `recall shell` (Settings → your profile → Command line).
+Windows.
 
 ### 3. Import existing history (optional)
 
@@ -274,6 +291,7 @@ Other commands:
 
 ```sh
 recall search --cmd-only   # print the selection (used by the zsh widget)
+recall setup [shell]       # configure automatic capture and shell hooks
 recall doctor              # diagnose config, databases and clipboard
 recall prune               # drop output older than the retention window
 recall config path|show|default
