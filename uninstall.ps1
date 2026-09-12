@@ -11,6 +11,7 @@ $markerPairs = @{
     '# >>> recall installer >>>' = '# <<< recall installer <<<'
     '# >>> recall setup bootstrap >>>' = '# <<< recall setup bootstrap <<<'
     '# >>> recall setup integration >>>' = '# <<< recall setup integration <<<'
+    '# >>> recall setup integration-no-eol >>>' = '# <<< recall setup integration-no-eol <<<'
 }
 
 function Say($message) { Write-Host $message }

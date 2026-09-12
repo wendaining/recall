@@ -10,7 +10,7 @@ remove_managed_setup() {
     file=$1
     shell_name=$2
     [ -f "$file" ] || return 0
-    grep -Eq '^# >>> recall (installer|setup (bootstrap|integration)) >>>$' "$file" \
+    grep -Eq '^# >>> recall (installer|setup (bootstrap|integration|integration-no-eol)) >>>$' "$file" \
         || return 0
     if command -v recall >/dev/null 2>&1 \
         && recall setup "$shell_name" --profile "$file" --remove >/dev/null 2>&1; then
@@ -23,6 +23,7 @@ remove_managed_setup() {
     sed -e '/^# >>> recall installer >>>$/,/^# <<< recall installer <<<$/{d;}' \
         -e '/^# >>> recall setup bootstrap >>>$/,/^# <<< recall setup bootstrap <<<$/{d;}' \
         -e '/^# >>> recall setup integration >>>$/,/^# <<< recall setup integration <<<$/{d;}' \
+        -e '/^# >>> recall setup integration-no-eol >>>$/,/^# <<< recall setup integration-no-eol <<<$/{d;}' \
         "$file" > "$temp_file"
     cat "$temp_file" > "$file"
     rm -f "$temp_file"
