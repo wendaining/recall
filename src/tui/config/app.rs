@@ -6,7 +6,7 @@ use crate::commands::setup::{self, ManagedSetup};
 use crate::config::{Config, ConfigStore};
 use crate::shell::Shell;
 
-const RECALL_COMMAND: &str = r"^\s*recall\b";
+pub(super) const RECALL_COMMAND: &str = r"^\s*recall\b";
 const PASSWORD_COMMANDS: &str = r"^\s*(?:pass|gopass|op|bw)\b";
 const CONTAINER_LOGS: &str = r"^\s*(?:docker|kubectl)\s+logs\b";
 const TAIL_FOLLOW: &str = r"^\s*tail\s+-f\b";
@@ -308,6 +308,10 @@ impl App {
         match item {
             CaptureItem::Secrets => self.toggle_bool("secrets_filter"),
             CaptureItem::Interactive => self.toggle_bool("mark_interactive"),
+            CaptureItem::Preset {
+                target: _, pattern, ..
+            } if pattern == RECALL_COMMAND => self
+                .set_error("Recall commands are always skipped to prevent recursion".to_string()),
             CaptureItem::Preset {
                 target, pattern, ..
             } => self.toggle_preset(target, pattern),
@@ -870,6 +874,25 @@ mod tests {
         assert_eq!(
             Config::load_from(&path).unwrap().proxy.exclude_output,
             ["^large"]
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn recall_command_rule_cannot_be_disabled() {
+        let (mut app, path, dir) = persisted_app("required-recall-rule");
+        app.category = 1;
+        app.selected = 2;
+
+        app.handle_key(key(KeyCode::Char(' ')));
+
+        assert!(app.status_is_error);
+        assert!(
+            Config::load_from(&path)
+                .unwrap()
+                .proxy
+                .exclude
+                .contains(&RECALL_COMMAND.to_string())
         );
         std::fs::remove_dir_all(dir).unwrap();
     }

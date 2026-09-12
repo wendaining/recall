@@ -207,10 +207,14 @@ fn capture_rows(app: &App) -> Vec<(String, String)> {
                 label,
                 target,
                 pattern,
-            } => (
-                label.to_string(),
-                checkbox(app.preset_enabled(target, pattern)),
-            ),
+            } => {
+                let value = if pattern == super::app::RECALL_COMMAND {
+                    "[x] Required".to_string()
+                } else {
+                    checkbox(app.preset_enabled(target, pattern))
+                };
+                (label.to_string(), value)
+            }
             CaptureItem::Add(RuleTarget::Command) => {
                 ("+ Command rule".to_string(), "Enter to add".to_string())
             }
