@@ -39,4 +39,4 @@ crossterm = { version = "0.29.0", features = ["use-dev-tty"] }
 
 [target."cfg(windows)".dependencies]
 sysinfo = { version = "=0.38.0", default-features = false, features = ["system"] }
-windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_System_Console"] }
+windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Console"] }
