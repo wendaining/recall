@@ -24,7 +24,7 @@ pub enum Command {
     Record(RecordArgs),
     /// Import metadata from another history source.
     Import(ImportArgs),
-    /// Diagnose configuration, databases and clipboard backends.
+    /// Diagnose configuration, shell setup, databases and clipboard backends.
     Doctor,
     /// Drop stored output older than the retention window.
     Prune,
