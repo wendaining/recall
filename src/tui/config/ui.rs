@@ -4,7 +4,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, List, ListItem, Paragraph, Wrap};
 
-use super::app::{App, Category};
+use super::app::{App, CaptureItem, Category, Modal, RuleTarget};
 
 pub(crate) fn draw(frame: &mut Frame, app: &mut App) {
     if frame.area().width < 72 || frame.area().height < 20 {
@@ -48,6 +48,9 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App) {
 
     if app.show_help {
         draw_help(frame);
+    }
+    if let Some(modal) = &app.modal {
+        draw_modal(frame, modal);
     }
 }
 
@@ -101,45 +104,120 @@ fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
     );
 }
 
-fn setting_rows(app: &App) -> Vec<(&'static str, String)> {
+fn setting_rows(app: &App) -> Vec<(String, String)> {
     match app.current_category() {
-        Category::Keybinding => vec![("Search shortcut", app.config.ui.search_key.clone())],
-        Category::Capture => vec![
-            ("Secret filtering", on_off(app.config.proxy.secrets_filter)),
-            (
-                "Interactive commands",
-                on_off(app.config.proxy.mark_interactive),
-            ),
-            (
-                "Excluded commands",
-                app.config.proxy.exclude.len().to_string(),
-            ),
-            (
-                "Output exclusions",
-                app.config.proxy.exclude_output.len().to_string(),
-            ),
-        ],
+        Category::Keybinding => vec![(
+            "Search shortcut".to_string(),
+            app.config.ui.search_key.clone(),
+        )],
+        Category::Capture => capture_rows(app),
         Category::Appearance => vec![
-            ("Preview lines", app.config.ui.preview_lines.to_string()),
             (
-                "List pane width",
+                "Preview lines".to_string(),
+                app.config.ui.preview_lines.to_string(),
+            ),
+            (
+                "List pane width".to_string(),
                 format!("{}%", app.config.ui.list_width_pct),
             ),
-            ("Timestamp format", app.config.ui.date_format.clone()),
+            (
+                "Timestamp format".to_string(),
+                app.config.ui.date_format.clone(),
+            ),
         ],
         Category::Shell => vec![
-            ("Detected shell", crate::util::login_shell()),
+            ("Detected shell".to_string(), crate::util::login_shell()),
             (
-                "Proxy active",
+                "Proxy active".to_string(),
                 on_off(std::env::var_os("RECALL_PROXY_ACTIVE").is_some()),
             ),
-            ("Setup mode", "checking profile…".to_string()),
+            ("Setup mode".to_string(), "checking profile…".to_string()),
         ],
     }
 }
 
+fn capture_rows(app: &App) -> Vec<(String, String)> {
+    app.capture_items()
+        .into_iter()
+        .map(|item| match item {
+            CaptureItem::Secrets => (
+                "Secret filtering".to_string(),
+                on_off(app.config.proxy.secrets_filter),
+            ),
+            CaptureItem::Interactive => (
+                "Interactive commands".to_string(),
+                on_off(app.config.proxy.mark_interactive),
+            ),
+            CaptureItem::Preset {
+                label,
+                target,
+                pattern,
+            } => (
+                label.to_string(),
+                checkbox(app.preset_enabled(target, pattern)),
+            ),
+            CaptureItem::Add(RuleTarget::Command) => {
+                ("+ Command rule".to_string(), "Enter to add".to_string())
+            }
+            CaptureItem::Add(RuleTarget::Output) => {
+                ("+ Output rule".to_string(), "Enter to add".to_string())
+            }
+            CaptureItem::Rule {
+                target: RuleTarget::Command,
+                pattern,
+                ..
+            } => ("Command rule".to_string(), pattern),
+            CaptureItem::Rule {
+                target: RuleTarget::Output,
+                pattern,
+                ..
+            } => ("Output rule".to_string(), pattern),
+        })
+        .collect()
+}
+
 fn on_off(value: bool) -> String {
     if value { "On" } else { "Off" }.to_string()
+}
+
+fn checkbox(value: bool) -> String {
+    if value { "[x]" } else { "[ ]" }.to_string()
+}
+
+fn draw_modal(frame: &mut Frame, modal: &Modal) {
+    let area = centered_rect(72, 40, frame.area());
+    frame.render_widget(Clear, area);
+    match modal {
+        Modal::RuleEditor {
+            target,
+            index,
+            input,
+        } => {
+            let action = if index.is_some() { "Edit" } else { "Add" };
+            let kind = match target {
+                RuleTarget::Command => "command exclusion",
+                RuleTarget::Output => "output exclusion",
+            };
+            frame.render_widget(
+                Paragraph::new(format!(
+                    "{input}\n\nEnter save · Esc cancel\nThe expression must be a valid Rust regular expression."
+                ))
+                .block(Block::bordered().title(format!(" {action} {kind} ")))
+                .wrap(Wrap { trim: false }),
+                area,
+            );
+        }
+        Modal::DeleteRule { pattern, .. } => {
+            frame.render_widget(
+                Paragraph::new(format!(
+                    "Delete this custom rule?\n\n{pattern}\n\nEnter/y confirm · Esc/n cancel"
+                ))
+                .block(Block::bordered().title(" Delete capture rule "))
+                .wrap(Wrap { trim: false }),
+                area,
+            );
+        }
+    }
 }
 
 fn draw_help(frame: &mut Frame) {

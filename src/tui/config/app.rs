@@ -1,6 +1,12 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::config::Config;
+use crate::config::{Config, ConfigStore};
+
+const RECALL_COMMAND: &str = r"^\s*recall\b";
+const PASSWORD_COMMANDS: &str = r"^\s*(?:pass|gopass|op|bw)\b";
+const CONTAINER_LOGS: &str = r"^\s*(?:docker|kubectl)\s+logs\b";
+const TAIL_FOLLOW: &str = r"^\s*tail\s+-f\b";
+const FFMPEG: &str = r"^\s*ffmpeg\b";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Category {
@@ -37,6 +43,43 @@ impl Category {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum RuleTarget {
+    Command,
+    Output,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum Modal {
+    RuleEditor {
+        target: RuleTarget,
+        index: Option<usize>,
+        input: String,
+    },
+    DeleteRule {
+        target: RuleTarget,
+        index: usize,
+        pattern: String,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum CaptureItem {
+    Secrets,
+    Interactive,
+    Preset {
+        label: &'static str,
+        target: RuleTarget,
+        pattern: &'static str,
+    },
+    Add(RuleTarget),
+    Rule {
+        target: RuleTarget,
+        index: usize,
+        pattern: String,
+    },
+}
+
 pub(crate) struct App {
     pub(crate) config: Config,
     pub(crate) category: usize,
@@ -45,6 +88,8 @@ pub(crate) struct App {
     pub(crate) show_help: bool,
     pub(crate) status: Option<String>,
     pub(crate) status_is_error: bool,
+    pub(crate) modal: Option<Modal>,
+    store: ConfigStore,
 }
 
 impl App {
@@ -57,6 +102,8 @@ impl App {
             show_help: false,
             status: None,
             status_is_error: false,
+            modal: None,
+            store: ConfigStore::active(),
         }
     }
 
@@ -65,6 +112,10 @@ impl App {
     }
 
     pub(crate) fn handle_key(&mut self, key: KeyEvent) {
+        if self.modal.is_some() {
+            self.handle_modal_key(key);
+            return;
+        }
         if key.code == KeyCode::F(1) {
             self.show_help = !self.show_help;
             return;
@@ -82,6 +133,16 @@ impl App {
             KeyCode::BackTab => self.move_category(-1),
             KeyCode::Up => self.move_row(-1),
             KeyCode::Down => self.move_row(1),
+            KeyCode::Char(' ') | KeyCode::Enter => self.activate_selected(),
+            KeyCode::Char('a') if self.current_category() == Category::Capture => {
+                self.add_rule_for_selection()
+            }
+            KeyCode::Char('e') if self.current_category() == Category::Capture => {
+                self.edit_selected_rule()
+            }
+            KeyCode::Char('d') if self.current_category() == Category::Capture => {
+                self.delete_selected_rule()
+            }
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.should_quit = true;
             }
@@ -97,17 +158,321 @@ impl App {
     }
 
     fn move_row(&mut self, delta: isize) {
-        let len = self.current_category().row_count() as isize;
+        let len = self.row_count() as isize;
         self.selected = (self.selected as isize + delta).rem_euclid(len) as usize;
+    }
+
+    pub(crate) fn row_count(&self) -> usize {
+        match self.current_category() {
+            Category::Capture => self.capture_items().len(),
+            category => category.row_count(),
+        }
+    }
+
+    pub(crate) fn capture_items(&self) -> Vec<CaptureItem> {
+        let presets = [
+            CaptureItem::Preset {
+                label: "Recall commands",
+                target: RuleTarget::Command,
+                pattern: RECALL_COMMAND,
+            },
+            CaptureItem::Preset {
+                label: "Password managers",
+                target: RuleTarget::Command,
+                pattern: PASSWORD_COMMANDS,
+            },
+            CaptureItem::Preset {
+                label: "Container logs output",
+                target: RuleTarget::Output,
+                pattern: CONTAINER_LOGS,
+            },
+            CaptureItem::Preset {
+                label: "tail -f output",
+                target: RuleTarget::Output,
+                pattern: TAIL_FOLLOW,
+            },
+            CaptureItem::Preset {
+                label: "ffmpeg output",
+                target: RuleTarget::Output,
+                pattern: FFMPEG,
+            },
+        ];
+        let mut items = vec![CaptureItem::Secrets, CaptureItem::Interactive];
+        items.extend(presets);
+        items.push(CaptureItem::Add(RuleTarget::Command));
+        items.extend(
+            self.config
+                .proxy
+                .exclude
+                .iter()
+                .enumerate()
+                .filter(|(_, pattern)| !is_preset(pattern))
+                .map(|(index, pattern)| CaptureItem::Rule {
+                    target: RuleTarget::Command,
+                    index,
+                    pattern: pattern.clone(),
+                }),
+        );
+        items.push(CaptureItem::Add(RuleTarget::Output));
+        items.extend(
+            self.config
+                .proxy
+                .exclude_output
+                .iter()
+                .enumerate()
+                .filter(|(_, pattern)| !is_preset(pattern))
+                .map(|(index, pattern)| CaptureItem::Rule {
+                    target: RuleTarget::Output,
+                    index,
+                    pattern: pattern.clone(),
+                }),
+        );
+        items
+    }
+
+    pub(crate) fn preset_enabled(&self, target: RuleTarget, pattern: &str) -> bool {
+        rules(&self.config, target)
+            .iter()
+            .any(|rule| rule == pattern)
+    }
+
+    fn activate_selected(&mut self) {
+        if self.current_category() != Category::Capture {
+            return;
+        }
+        let Some(item) = self.capture_items().get(self.selected).cloned() else {
+            return;
+        };
+        match item {
+            CaptureItem::Secrets => self.toggle_bool("secrets_filter"),
+            CaptureItem::Interactive => self.toggle_bool("mark_interactive"),
+            CaptureItem::Preset {
+                target, pattern, ..
+            } => self.toggle_preset(target, pattern),
+            CaptureItem::Add(target) => self.open_rule_editor(target, None, String::new()),
+            CaptureItem::Rule {
+                target,
+                index,
+                pattern,
+            } => self.open_rule_editor(target, Some(index), pattern),
+        }
+    }
+
+    fn toggle_bool(&mut self, key: &str) {
+        let next = match key {
+            "secrets_filter" => !self.config.proxy.secrets_filter,
+            "mark_interactive" => !self.config.proxy.mark_interactive,
+            _ => return,
+        };
+        match self.store.set_bool("proxy", key, next) {
+            Ok(config) => {
+                self.config = config;
+                self.set_saved(format!(
+                    "{key} {}",
+                    if next { "enabled" } else { "disabled" }
+                ));
+            }
+            Err(err) => self.set_error(format!("failed to save {key}: {err}")),
+        }
+    }
+
+    fn toggle_preset(&mut self, target: RuleTarget, pattern: &str) {
+        let mut next = rules(&self.config, target).to_vec();
+        if let Some(index) = next.iter().position(|rule| rule == pattern) {
+            next.remove(index);
+        } else {
+            next.push(pattern.to_string());
+        }
+        self.save_rules(target, next, "capture preset updated");
+    }
+
+    fn add_rule_for_selection(&mut self) {
+        let target = self
+            .capture_items()
+            .get(self.selected)
+            .and_then(capture_target)
+            .unwrap_or(RuleTarget::Command);
+        self.open_rule_editor(target, None, String::new());
+    }
+
+    fn edit_selected_rule(&mut self) {
+        let Some(CaptureItem::Rule {
+            target,
+            index,
+            pattern,
+        }) = self.capture_items().get(self.selected).cloned()
+        else {
+            self.set_error("select a custom rule to edit".to_string());
+            return;
+        };
+        self.open_rule_editor(target, Some(index), pattern);
+    }
+
+    fn delete_selected_rule(&mut self) {
+        let Some(CaptureItem::Rule {
+            target,
+            index,
+            pattern,
+        }) = self.capture_items().get(self.selected).cloned()
+        else {
+            self.set_error("select a custom rule to delete".to_string());
+            return;
+        };
+        self.modal = Some(Modal::DeleteRule {
+            target,
+            index,
+            pattern,
+        });
+    }
+
+    fn open_rule_editor(&mut self, target: RuleTarget, index: Option<usize>, input: String) {
+        self.modal = Some(Modal::RuleEditor {
+            target,
+            index,
+            input,
+        });
+    }
+
+    fn handle_modal_key(&mut self, key: KeyEvent) {
+        let Some(mut modal) = self.modal.take() else {
+            return;
+        };
+        match &mut modal {
+            Modal::RuleEditor {
+                target,
+                index,
+                input,
+            } => match key.code {
+                KeyCode::Esc => {}
+                KeyCode::Enter => {
+                    let input = input.trim().to_string();
+                    if input.is_empty() {
+                        self.set_error("regular expression cannot be empty".to_string());
+                        self.modal = Some(modal);
+                    } else if let Err(err) = regex::Regex::new(&input) {
+                        self.set_error(format!("invalid regular expression: {err}"));
+                        self.modal = Some(modal);
+                    } else {
+                        let mut next = rules(&self.config, *target).to_vec();
+                        match *index {
+                            Some(index) if index < next.len() => next[index] = input,
+                            Some(_) => self.set_error("rule no longer exists".to_string()),
+                            None => next.push(input),
+                        }
+                        if index.is_none() || index.is_some_and(|index| index < next.len()) {
+                            self.save_rules(*target, next, "capture rule saved");
+                        }
+                    }
+                }
+                KeyCode::Backspace => {
+                    input.pop();
+                    self.modal = Some(modal);
+                }
+                KeyCode::Char(character)
+                    if !key
+                        .modifiers
+                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+                {
+                    input.push(character);
+                    self.modal = Some(modal);
+                }
+                _ => self.modal = Some(modal),
+            },
+            Modal::DeleteRule {
+                target,
+                index,
+                pattern: _,
+            } => match key.code {
+                KeyCode::Enter | KeyCode::Char('y') => {
+                    let mut next = rules(&self.config, *target).to_vec();
+                    if *index < next.len() {
+                        next.remove(*index);
+                        self.save_rules(*target, next, "capture rule deleted");
+                        self.selected = self.selected.min(self.row_count().saturating_sub(1));
+                    } else {
+                        self.set_error("rule no longer exists".to_string());
+                    }
+                }
+                KeyCode::Esc | KeyCode::Char('n') => {}
+                _ => self.modal = Some(modal),
+            },
+        }
+    }
+
+    fn save_rules(&mut self, target: RuleTarget, rules: Vec<String>, status: &str) {
+        let key = match target {
+            RuleTarget::Command => "exclude",
+            RuleTarget::Output => "exclude_output",
+        };
+        match self.store.set_strings("proxy", key, &rules) {
+            Ok(config) => {
+                self.config = config;
+                self.set_saved(status.to_string());
+            }
+            Err(err) => self.set_error(format!("failed to save capture rules: {err}")),
+        }
+    }
+
+    fn set_saved(&mut self, status: String) {
+        self.status = Some(status);
+        self.status_is_error = false;
+    }
+
+    fn set_error(&mut self, status: String) {
+        self.status = Some(status);
+        self.status_is_error = true;
+    }
+}
+
+fn rules(config: &Config, target: RuleTarget) -> &[String] {
+    match target {
+        RuleTarget::Command => &config.proxy.exclude,
+        RuleTarget::Output => &config.proxy.exclude_output,
+    }
+}
+
+fn is_preset(pattern: &str) -> bool {
+    [
+        RECALL_COMMAND,
+        PASSWORD_COMMANDS,
+        CONTAINER_LOGS,
+        TAIL_FOLLOW,
+        FFMPEG,
+    ]
+    .contains(&pattern)
+}
+
+fn capture_target(item: &CaptureItem) -> Option<RuleTarget> {
+    match item {
+        CaptureItem::Preset { target, .. }
+        | CaptureItem::Add(target)
+        | CaptureItem::Rule { target, .. } => Some(*target),
+        CaptureItem::Secrets | CaptureItem::Interactive => None,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    fn persisted_app(name: &str) -> (App, PathBuf, PathBuf) {
+        let dir = std::env::temp_dir().join(format!(
+            "recall-config-ui-test-{}-{}-{name}",
+            std::process::id(),
+            ulid::Ulid::generate()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        let config = Config::default();
+        std::fs::write(&path, toml::to_string_pretty(&config).unwrap()).unwrap();
+        let mut app = App::new(config);
+        app.store = ConfigStore::at(path.clone());
+        (app, path, dir)
     }
 
     #[test]
@@ -131,5 +496,73 @@ mod tests {
         assert!(!app.should_quit);
         app.handle_key(key(KeyCode::Esc));
         assert!(app.should_quit);
+    }
+
+    #[test]
+    fn capture_items_separate_presets_from_custom_rules() {
+        let mut config = Config::default();
+        config.proxy.exclude.push("^private".to_string());
+        config.proxy.exclude_output.push(FFMPEG.to_string());
+        config.proxy.exclude_output.push("^large".to_string());
+        let app = App::new(config);
+        let items = app.capture_items();
+
+        assert!(items.iter().any(|item| matches!(
+            item,
+            CaptureItem::Rule { pattern, .. } if pattern == "^private"
+        )));
+        assert!(items.iter().any(|item| matches!(
+            item,
+            CaptureItem::Rule { pattern, .. } if pattern == "^large"
+        )));
+        assert!(!items.iter().any(|item| matches!(
+            item,
+            CaptureItem::Rule { pattern, .. } if pattern == FFMPEG
+        )));
+    }
+
+    #[test]
+    fn invalid_rule_stays_in_editor() {
+        let mut app = App::new(Config::default());
+        app.modal = Some(Modal::RuleEditor {
+            target: RuleTarget::Command,
+            index: None,
+            input: "[".to_string(),
+        });
+        app.handle_key(key(KeyCode::Enter));
+        assert!(matches!(app.modal, Some(Modal::RuleEditor { .. })));
+        assert!(app.status_is_error);
+    }
+
+    #[test]
+    fn capture_changes_are_saved_immediately() {
+        let (mut app, path, dir) = persisted_app("capture-save");
+        app.category = 1;
+
+        app.selected = 0;
+        app.handle_key(key(KeyCode::Char(' ')));
+        assert!(!Config::load_from(&path).unwrap().proxy.secrets_filter);
+
+        app.selected = 3;
+        app.handle_key(key(KeyCode::Char(' ')));
+        assert!(
+            Config::load_from(&path)
+                .unwrap()
+                .proxy
+                .exclude
+                .contains(&PASSWORD_COMMANDS.to_string())
+        );
+
+        app.modal = Some(Modal::RuleEditor {
+            target: RuleTarget::Output,
+            index: None,
+            input: "^large".to_string(),
+        });
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(
+            Config::load_from(&path).unwrap().proxy.exclude_output,
+            ["^large"]
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }
