@@ -75,7 +75,7 @@ fn draw_categories(frame: &mut Frame, app: &App, area: Rect) {
     );
 }
 
-fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
+fn draw_settings(frame: &mut Frame, app: &mut App, area: Rect) {
     let rows = setting_rows(app);
     let items = rows
         .into_iter()
@@ -97,10 +97,12 @@ fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
             ]))
         })
         .collect::<Vec<_>>();
-    frame.render_widget(
+    app.settings_state.select(Some(app.selected));
+    frame.render_stateful_widget(
         List::new(items)
             .block(Block::bordered().title(format!(" {} ", app.current_category().label()))),
         area,
+        &mut app.settings_state,
     );
 }
 
@@ -371,5 +373,21 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|frame| draw(frame, &mut app)).unwrap();
         assert!(terminal.backend().to_string().contains("at least 72x20"));
+    }
+
+    #[test]
+    fn keeps_a_long_capture_selection_visible() {
+        let mut config = crate::config::Config::default();
+        for index in 0..20 {
+            config.proxy.exclude.push(format!("^custom-{index}"));
+        }
+        let mut app = App::new(config);
+        app.category = 1;
+        app.selected = app.row_count() - 1;
+        let backend = TestBackend::new(100, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| draw(frame, &mut app)).unwrap();
+
+        assert!(terminal.backend().to_string().contains("^custom-19"));
     }
 }
