@@ -224,6 +224,7 @@ pub fn get_setting(conn: &Connection, key: &str) -> Result<Option<String>> {
 }
 
 /// Persist a key/value setting, replacing any previous value.
+#[cfg(test)]
 pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {
     conn.execute(
         "INSERT INTO settings (key, value) VALUES (?1, ?2)
@@ -231,6 +232,13 @@ pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {
         params![key, value],
     )
     .context("writing setting")?;
+    Ok(())
+}
+
+/// Delete a persisted setting after it has been migrated elsewhere.
+pub fn delete_setting(conn: &Connection, key: &str) -> Result<()> {
+    conn.execute("DELETE FROM settings WHERE key = ?1", params![key])
+        .context("deleting setting")?;
     Ok(())
 }
 
@@ -339,6 +347,8 @@ mod tests {
                 .as_deref(),
             Some("60")
         );
+        delete_setting(&db.conn, "ui.list_width_pct").unwrap();
+        assert_eq!(get_setting(&db.conn, "ui.list_width_pct").unwrap(), None);
     }
 
     #[test]
