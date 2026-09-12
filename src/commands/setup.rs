@@ -12,6 +12,8 @@ pub(crate) const BOOTSTRAP_START: &str = "# >>> recall setup bootstrap >>>";
 pub(crate) const BOOTSTRAP_END: &str = "# <<< recall setup bootstrap <<<";
 pub(crate) const INTEGRATION_START: &str = "# >>> recall setup integration >>>";
 pub(crate) const INTEGRATION_END: &str = "# <<< recall setup integration <<<";
+const INTEGRATION_NO_EOL_START: &str = "# >>> recall setup integration-no-eol >>>";
+const INTEGRATION_NO_EOL_END: &str = "# <<< recall setup integration-no-eol <<<";
 const LEGACY_START: &str = "# >>> recall installer >>>";
 const LEGACY_END: &str = "# <<< recall installer <<<";
 
@@ -254,7 +256,7 @@ fn encode_text(text: &str, encoding: TextEncoding, newline: &str) -> Vec<u8> {
 }
 
 fn remove_managed_blocks(text: &str) -> Result<String> {
-    let mut output = Vec::new();
+    let mut output = String::new();
     let mut expected_end: Option<&str> = None;
 
     for line in text.split_inclusive('\n') {
@@ -268,41 +270,49 @@ fn remove_managed_blocks(text: &str) -> Result<String> {
             continue;
         }
         if let Some(end) = is_start_marker(marker) {
+            if marker == INTEGRATION_NO_EOL_START && output.ends_with('\n') {
+                output.pop();
+            }
             expected_end = Some(end);
         } else if is_end_marker(marker) {
             bail!("malformed recall setup markers");
         } else {
-            output.push(line);
+            output.push_str(line);
         }
     }
     if expected_end.is_some() {
         bail!("malformed recall setup markers");
     }
-    Ok(output.concat())
+    Ok(output)
 }
 
 fn is_start_marker(line: &str) -> Option<&'static str> {
     match line {
         BOOTSTRAP_START => Some(BOOTSTRAP_END),
         INTEGRATION_START => Some(INTEGRATION_END),
+        INTEGRATION_NO_EOL_START => Some(INTEGRATION_NO_EOL_END),
         LEGACY_START => Some(LEGACY_END),
         _ => None,
     }
 }
 
 fn is_end_marker(line: &str) -> bool {
-    matches!(line, BOOTSTRAP_END | INTEGRATION_END | LEGACY_END)
+    matches!(
+        line,
+        BOOTSTRAP_END | INTEGRATION_END | INTEGRATION_NO_EOL_END | LEGACY_END
+    )
 }
 
 fn render_profile(text: &str, shell: &str, binary_dir: &Path, mode: SetupMode) -> String {
     let mut output = String::new();
     output.push_str(&render_bootstrap(shell, binary_dir, mode));
     output.push_str(text);
-    if !output.is_empty() && !output.ends_with('\n') {
-        output.push('\n');
-    }
     if active_init_count(text) == 0 {
-        output.push_str(&render_integration(shell));
+        let preserve_no_eol = !text.is_empty() && !text.ends_with('\n');
+        if preserve_no_eol {
+            output.push('\n');
+        }
+        output.push_str(&render_integration(shell, preserve_no_eol));
     }
     output
 }
@@ -361,7 +371,7 @@ fn render_bootstrap(shell: &str, binary_dir: &Path, mode: SetupMode) -> String {
     }
 }
 
-fn render_integration(shell: &str) -> String {
+fn render_integration(shell: &str, preserve_no_eol: bool) -> String {
     let command = match shell {
         "zsh" | "bash" => format!("eval \"$(command recall init {shell})\""),
         "fish" => "command recall init fish | source".to_string(),
@@ -370,7 +380,12 @@ fn render_integration(shell: &str) -> String {
         }
         _ => unreachable!("setup only accepts integrated shells"),
     };
-    format!("{INTEGRATION_START}\n{command}\n{INTEGRATION_END}\n")
+    let (start, end) = if preserve_no_eol {
+        (INTEGRATION_NO_EOL_START, INTEGRATION_NO_EOL_END)
+    } else {
+        (INTEGRATION_START, INTEGRATION_END)
+    };
+    format!("{start}\n{command}\n{end}\n")
 }
 
 fn active_init_count(text: &str) -> usize {
@@ -601,6 +616,22 @@ mod tests {
         assert!(update_profile(&path, shell, SetupMode::Auto, true).unwrap());
         assert_eq!(fs::read_to_string(&path).unwrap(), "echo user\n");
         assert!(!update_profile(&path, shell, SetupMode::Auto, true).unwrap());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn preserves_a_missing_final_newline() {
+        let (path, dir) = temp_profile("no-final-newline");
+        fs::write(&path, "echo user").unwrap();
+        let shell = Shell::from_name("bash").unwrap();
+
+        update_profile(&path, shell, SetupMode::Auto, false).unwrap();
+        let once = fs::read(&path).unwrap();
+        assert!(!update_profile(&path, shell, SetupMode::Auto, false).unwrap());
+        assert_eq!(fs::read(&path).unwrap(), once);
+
+        update_profile(&path, shell, SetupMode::Auto, true).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"echo user");
         fs::remove_dir_all(dir).unwrap();
     }
 
