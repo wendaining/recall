@@ -28,7 +28,6 @@ require mktemp
 require id
 require mkdir
 require dirname
-require grep
 require cat
 
 show_logo() {
@@ -147,18 +146,6 @@ case "$shell_name" in
         ;;
 esac
 
-remove_managed_setup() {
-    file=$1
-    [ -f "$file" ] || return 0
-    sed '/^# >>> recall installer >>>$/,/^# <<< recall installer <<<$/{d;}' \
-        "$file" > "$temp_dir/profile.cleaned"
-    cat "$temp_dir/profile.cleaned" > "$file"
-}
-
-escape_double_quotes() {
-    sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\$/\\$/g' -e 's/`/\\`/g'
-}
-
 set_search_key() {
     file=$1
     key=$2
@@ -189,38 +176,10 @@ set_search_key() {
 
 choose_proxy_setup() {
     case "${RECALL_PROXY_SETUP:-}" in
-        terminal | shell | none)
-            proxy_setup=$RECALL_PROXY_SETUP
-            return
-            ;;
-        "") ;;
-        *) die "RECALL_PROXY_SETUP must be terminal, shell, or none" ;;
-    esac
-
-    if [ ! -r /dev/tty ] || [ ! -w /dev/tty ]; then
-        proxy_setup=none
-        return
-    fi
-
-    say ""
-    say "Choose how new terminals start recall's PTY proxy:"
-    say "  1. Terminal emulator startup command (recommended)"
-    if [ -n "$profile_path" ]; then
-        say "  2. Shell startup file (use when your terminal has no such setting)"
-    fi
-    say "  3. Not now"
-    printf 'Choice [1]: ' > /dev/tty
-    IFS= read -r answer < /dev/tty || answer=""
-    case "$answer" in
-        "" | 1) proxy_setup=terminal ;;
-        2)
-            if [ -n "$profile_path" ]; then
-                proxy_setup=shell
-            else
-                proxy_setup=none
-            fi
-            ;;
-        *) proxy_setup=none ;;
+        "" | auto | shell) proxy_setup=auto ;;
+        hooks | none) proxy_setup=hooks ;;
+        terminal) proxy_setup=terminal ;;
+        *) die "RECALL_PROXY_SETUP must be auto, hooks, or terminal" ;;
     esac
 }
 
@@ -311,69 +270,16 @@ offer_detected_history() {
         "$history_data_dir/fish/fish_history" "fish history"
 }
 
-proxy_setup=none
+proxy_setup=auto
 choose_proxy_setup
 search_key=""
 choose_search_key
 shell_configured=0
 if [ -n "$profile_path" ]; then
-    mkdir -p "$(dirname "$profile_path")"
-    [ -e "$profile_path" ] || : > "$profile_path"
-    remove_managed_setup "$profile_path"
-
-    integration_needed=1
-    case "$shell_name" in
-        zsh | bash)
-            if grep -Fq "recall init $shell_name" "$profile_path"; then
-                integration_needed=0
-            fi
-            ;;
-        fish)
-            if grep -Fq "recall init fish" "$profile_path"; then
-                integration_needed=0
-            fi
-            ;;
-    esac
-
-    escaped_install_dir=$(printf '%s' "$install_dir" | escape_double_quotes)
-    {
-        printf '\n# >>> recall installer >>>\n'
-        case "$shell_name" in
-            zsh | bash)
-                printf 'case ":$PATH:" in\n'
-                printf '  *":%s:"*) ;;\n' "$escaped_install_dir"
-                printf '  *) export PATH="%s:$PATH" ;;\n' "$escaped_install_dir"
-                printf 'esac\n'
-                if [ "$integration_needed" -eq 1 ]; then
-                    printf 'eval "$(command recall init %s)"\n' "$shell_name"
-                fi
-                if [ "$proxy_setup" = shell ]; then
-                    if [ "$shell_name" = zsh ]; then
-                        printf 'if [[ -o interactive && -z ${RECALL_PROXY_ACTIVE:-} && -z ${RECALL_AUTO_LAUNCH:-} ]]; then\n'
-                    else
-                        printf 'if [[ $- == *i* && -z ${RECALL_PROXY_ACTIVE:-} && -z ${RECALL_AUTO_LAUNCH:-} ]]; then\n'
-                    fi
-                    printf '  export RECALL_AUTO_LAUNCH=1\n'
-                    printf '  exec recall shell\n'
-                    printf 'fi\n'
-                fi
-                ;;
-            fish)
-                printf 'contains -- "%s" $PATH; or set -gx PATH "%s" $PATH\n' \
-                    "$escaped_install_dir" "$escaped_install_dir"
-                if [ "$integration_needed" -eq 1 ]; then
-                    printf 'command recall init fish | source\n'
-                fi
-                if [ "$proxy_setup" = shell ]; then
-                    printf 'if status is-interactive; and not set -q RECALL_PROXY_ACTIVE; and not set -q RECALL_AUTO_LAUNCH\n'
-                    printf '    set -gx RECALL_AUTO_LAUNCH 1\n'
-                    printf '    exec recall shell\n'
-                    printf 'end\n'
-                fi
-                ;;
-        esac
-        printf '# <<< recall installer <<<\n'
-    } >> "$profile_path"
+    setup_mode=$proxy_setup
+    [ "$setup_mode" = terminal ] && setup_mode=hooks
+    "$destination" setup "$shell_name" --mode "$setup_mode" --profile "$profile_path" \
+        || die "failed to configure $profile_path"
     shell_configured=1
 fi
 
@@ -409,20 +315,26 @@ if [ "$config_created" -eq 1 ]; then
 else
     say "Config:       kept existing $config_path"
 fi
-case "$proxy_setup" in
-    terminal)
-        say "PTY proxy:    set your terminal's startup command to:"
-        say "              $destination shell"
-        ;;
-    shell)
-        say "PTY proxy:    enabled through $profile_path"
-        ;;
-    none)
-        say "PTY proxy:    not enabled; run 'recall shell' when needed"
-        ;;
-esac
+if [ "$shell_configured" -eq 0 ]; then
+    say "Output:       not configured; run 'recall shell' manually"
+else
+    case "$proxy_setup" in
+        auto)
+            say "Output:       automatic capture in new interactive shells"
+            say "Alternative:  run 'recall setup $shell_name --mode hooks' for hooks only"
+            ;;
+        hooks)
+            say "Output:       hooks only; run 'recall shell' when capture is needed"
+            ;;
+        terminal)
+            say "Output:       terminal-managed compatibility mode"
+            say "              set your terminal's startup command to:"
+            say "              $destination shell"
+            ;;
+    esac
+fi
 say ""
-say "Open a new terminal after finishing the setup above. Run 'recall' or press"
+say "Open a new terminal to activate the setup. Run 'recall' or press"
 say "Alt+R to browse history; press F1 inside recall to see all shortcuts."
 if [ "$os" = Darwin ] && [ -z "$search_key" ]; then
     say ""
