@@ -1,7 +1,10 @@
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
+use toml_edit::{Array, DocumentMut, Item, Table, Value};
+
+use crate::atomic_file;
 
 /// Top-level configuration, loaded from `~/.config/recall/config.toml`.
 ///
@@ -166,6 +169,100 @@ impl Config {
     }
 }
 
+/// Lossless, atomic mutations of the active TOML configuration.
+#[allow(dead_code)]
+pub(crate) struct ConfigStore {
+    path: PathBuf,
+}
+
+#[allow(dead_code)]
+impl ConfigStore {
+    pub(crate) fn active() -> Self {
+        Self {
+            path: Config::config_path(),
+        }
+    }
+
+    #[cfg(test)]
+    fn at(path: PathBuf) -> Self {
+        Self { path }
+    }
+
+    pub(crate) fn set_bool(&self, section: &str, key: &str, value: bool) -> Result<Config> {
+        self.set_value(section, key, Value::from(value))
+    }
+
+    pub(crate) fn set_integer(&self, section: &str, key: &str, value: i64) -> Result<Config> {
+        self.set_value(section, key, Value::from(value))
+    }
+
+    pub(crate) fn set_string(&self, section: &str, key: &str, value: &str) -> Result<Config> {
+        self.set_value(section, key, Value::from(value))
+    }
+
+    pub(crate) fn set_strings(
+        &self,
+        section: &str,
+        key: &str,
+        values: &[String],
+    ) -> Result<Config> {
+        let mut array = Array::new();
+        for value in values {
+            array.push(value.as_str());
+        }
+        self.set_value(section, key, Value::Array(array))
+    }
+
+    fn set_value(&self, section: &str, key: &str, value: Value) -> Result<Config> {
+        let original = match std::fs::read(&self.path) {
+            Ok(bytes) => bytes,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                toml::to_string_pretty(&Config::default())?.into_bytes()
+            }
+            Err(err) => {
+                return Err(err).with_context(|| format!("reading config {}", self.path.display()));
+            }
+        };
+        let (bom, bytes) = original
+            .strip_prefix(&[0xef, 0xbb, 0xbf])
+            .map_or((false, original.as_slice()), |bytes| (true, bytes));
+        let text = std::str::from_utf8(bytes)
+            .with_context(|| format!("decoding config {} as UTF-8", self.path.display()))?;
+        let crlf = text.contains("\r\n");
+        let normalized = if crlf {
+            text.replace("\r\n", "\n")
+        } else {
+            text.to_string()
+        };
+        let mut document = normalized
+            .parse::<DocumentMut>()
+            .with_context(|| format!("parsing config {}", self.path.display()))?;
+        let item = document
+            .entry(section)
+            .or_insert_with(|| Item::Table(Table::new()));
+        let table = item
+            .as_table_mut()
+            .ok_or_else(|| anyhow!("config section `{section}` is not a table"))?;
+        table[key] = Item::Value(value);
+
+        let rendered = document.to_string();
+        let config = Config::parse(&rendered)
+            .with_context(|| format!("validating config {}", self.path.display()))?;
+        let rendered = if crlf {
+            rendered.replace('\n', "\r\n")
+        } else {
+            rendered
+        };
+        let mut output = Vec::with_capacity(rendered.len() + usize::from(bom) * 3);
+        if bom {
+            output.extend_from_slice(&[0xef, 0xbb, 0xbf]);
+        }
+        output.extend_from_slice(rendered.as_bytes());
+        atomic_file::replace(&self.path, &output, "config")?;
+        Ok(config)
+    }
+}
+
 fn config_path_from(override_path: Option<std::ffi::OsString>) -> PathBuf {
     override_path.map(PathBuf::from).unwrap_or_else(|| {
         dirs::config_dir()
@@ -184,6 +281,16 @@ pub fn default_data_dir() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn temp_config(name: &str) -> (PathBuf, PathBuf) {
+        let dir = std::env::temp_dir().join(format!(
+            "recall-config-test-{}-{}-{name}",
+            std::process::id(),
+            ulid::Ulid::generate()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        (dir.join("config.toml"), dir)
+    }
 
     #[test]
     fn parses_exclude_output_patterns() {
@@ -252,5 +359,79 @@ mod tests {
     fn config_path_prefers_override() {
         let path = config_path_from(Some(std::ffi::OsString::from("custom/config.toml")));
         assert_eq!(path, PathBuf::from("custom/config.toml"));
+    }
+
+    #[test]
+    fn config_store_preserves_comments_and_external_changes() {
+        let (path, dir) = temp_config("comments");
+        std::fs::write(
+            &path,
+            "# keep me\n[ui]\nsearch_key = \"alt-r\" # inline\n\n[proxy]\nshell = \"zsh\"\n",
+        )
+        .unwrap();
+        let store = ConfigStore::at(path.clone());
+
+        store.set_integer("ui", "preview_lines", 7).unwrap();
+        let mut external = std::fs::read_to_string(&path).unwrap();
+        external.push_str("# added elsewhere\n");
+        std::fs::write(&path, external).unwrap();
+        store.set_bool("proxy", "secrets_filter", false).unwrap();
+
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert!(saved.contains("# keep me"));
+        assert!(saved.contains("search_key = \"alt-r\" # inline"));
+        assert!(saved.contains("# added elsewhere"));
+        assert!(saved.contains("preview_lines = 7"));
+        assert!(saved.contains("secrets_filter = false"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn config_store_preserves_crlf_and_bom() {
+        let (path, dir) = temp_config("crlf-bom");
+        let mut bytes = vec![0xef, 0xbb, 0xbf];
+        bytes.extend_from_slice(b"[ui]\r\nsearch_key = \"alt-r\"\r\n");
+        std::fs::write(&path, bytes).unwrap();
+
+        ConfigStore::at(path.clone())
+            .set_string("ui", "search_key", "ctrl-t")
+            .unwrap();
+
+        let saved = std::fs::read(&path).unwrap();
+        assert!(saved.starts_with(&[0xef, 0xbb, 0xbf]));
+        let text = std::str::from_utf8(&saved[3..]).unwrap();
+        assert!(text.contains("search_key = \"ctrl-t\"\r\n"));
+        assert!(!text.replace("\r\n", "").contains('\n'));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn config_store_refuses_invalid_toml_without_modifying_it() {
+        let (path, dir) = temp_config("invalid");
+        let original = b"[ui\ninvalid";
+        std::fs::write(&path, original).unwrap();
+
+        assert!(
+            ConfigStore::at(path.clone())
+                .set_bool("proxy", "secrets_filter", false)
+                .is_err()
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn config_store_writes_string_arrays() {
+        let (path, dir) = temp_config("arrays");
+        let store = ConfigStore::at(path.clone());
+        let config = store
+            .set_strings(
+                "proxy",
+                "exclude_output",
+                &["^docker logs".to_string(), "^tail -f".to_string()],
+            )
+            .unwrap();
+        assert_eq!(config.proxy.exclude_output, ["^docker logs", "^tail -f"]);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }
