@@ -119,7 +119,11 @@ fn setting_rows(app: &App) -> Vec<(String, String)> {
             ),
             (
                 "Timestamp format".to_string(),
-                app.config.ui.date_format.clone(),
+                format!(
+                    "{} · {}",
+                    app.config.ui.date_format,
+                    super::app::date_preview(&app.config.ui.date_format)
+                ),
             ),
         ],
         Category::Shell => vec![
@@ -216,6 +220,17 @@ fn draw_modal(frame: &mut Frame, modal: &Modal) {
                     "{value}\n\nPress one or two Ctrl/Alt chords.\nEnter save · Backspace remove · Esc cancel"
                 ))
                 .block(Block::bordered().title(" Record search shortcut "))
+                .wrap(Wrap { trim: false }),
+                area,
+            );
+        }
+        Modal::DateEditor { input } => {
+            frame.render_widget(
+                Paragraph::new(format!(
+                    "{input}\n\nPreview: {}\n\nEnter save · Esc cancel",
+                    super::app::date_preview(input)
+                ))
+                .block(Block::bordered().title(" Custom timestamp format "))
                 .wrap(Wrap { trim: false }),
                 area,
             );

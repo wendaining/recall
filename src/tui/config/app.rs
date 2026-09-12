@@ -8,6 +8,12 @@ const PASSWORD_COMMANDS: &str = r"^\s*(?:pass|gopass|op|bw)\b";
 const CONTAINER_LOGS: &str = r"^\s*(?:docker|kubectl)\s+logs\b";
 const TAIL_FOLLOW: &str = r"^\s*tail\s+-f\b";
 const FFMPEG: &str = r"^\s*ffmpeg\b";
+const DATE_FORMATS: [&str; 3] = ["%Y-%m-%d %H:%M:%S", "%H:%M:%S", "%b %d %H:%M"];
+const PREVIEW_MIN: i64 = 0;
+const PREVIEW_MAX: i64 = 20;
+const LIST_WIDTH_MIN: i64 = 15;
+const LIST_WIDTH_MAX: i64 = 85;
+const LIST_WIDTH_STEP: i64 = 5;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Category {
@@ -54,6 +60,9 @@ pub(crate) enum RuleTarget {
 pub(crate) enum Modal {
     KeyRecorder {
         chords: Vec<String>,
+    },
+    DateEditor {
+        input: String,
     },
     RuleEditor {
         target: RuleTarget,
@@ -140,6 +149,8 @@ impl App {
             KeyCode::BackTab => self.move_category(-1),
             KeyCode::Up => self.move_row(-1),
             KeyCode::Down => self.move_row(1),
+            KeyCode::Left => self.adjust_appearance(-1),
+            KeyCode::Right => self.adjust_appearance(1),
             KeyCode::Char(' ') | KeyCode::Enter => self.activate_selected(),
             KeyCode::Char('a') if self.current_category() == Category::Capture => {
                 self.add_rule_for_selection()
@@ -247,6 +258,15 @@ impl App {
         if self.current_category() == Category::Keybinding {
             self.modal = Some(Modal::KeyRecorder { chords: Vec::new() });
             self.status = None;
+            return;
+        }
+        if self.current_category() == Category::Appearance {
+            if self.selected == 2 {
+                self.modal = Some(Modal::DateEditor {
+                    input: self.config.ui.date_format.clone(),
+                });
+                self.status = None;
+            }
             return;
         }
         if self.current_category() != Category::Capture {
@@ -382,6 +402,37 @@ impl App {
                     }
                 },
             },
+            Modal::DateEditor { input } => match key.code {
+                KeyCode::Esc => {}
+                KeyCode::Enter if input.is_empty() => {
+                    self.set_error("date format cannot be empty".to_string());
+                    self.modal = Some(modal);
+                }
+                KeyCode::Enter if !valid_date_format(input) => {
+                    self.set_error("invalid strftime date format".to_string());
+                    self.modal = Some(modal);
+                }
+                KeyCode::Enter => {
+                    let format = input.clone();
+                    self.save_date_format(&format, true);
+                    if self.status_is_error {
+                        self.modal = Some(modal);
+                    }
+                }
+                KeyCode::Backspace => {
+                    input.pop();
+                    self.modal = Some(modal);
+                }
+                KeyCode::Char(character)
+                    if !key
+                        .modifiers
+                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+                {
+                    input.push(character);
+                    self.modal = Some(modal);
+                }
+                _ => self.modal = Some(modal),
+            },
             Modal::RuleEditor {
                 target,
                 index,
@@ -489,6 +540,65 @@ impl App {
         }
     }
 
+    fn adjust_appearance(&mut self, direction: i64) {
+        if self.current_category() != Category::Appearance {
+            return;
+        }
+        match self.selected {
+            0 => {
+                let next = (self.config.ui.preview_lines as i64 + direction)
+                    .clamp(PREVIEW_MIN, PREVIEW_MAX);
+                if next != self.config.ui.preview_lines as i64 {
+                    self.save_integer("preview_lines", next, format!("preview lines {next}"));
+                }
+            }
+            1 => {
+                let next = (self.config.ui.list_width_pct as i64 + direction * LIST_WIDTH_STEP)
+                    .clamp(LIST_WIDTH_MIN, LIST_WIDTH_MAX);
+                if next != self.config.ui.list_width_pct as i64 {
+                    self.save_integer("list_width_pct", next, format!("list width {next}%"));
+                }
+            }
+            2 => {
+                let current = DATE_FORMATS
+                    .iter()
+                    .position(|format| *format == self.config.ui.date_format);
+                let next = match (current, direction.is_negative()) {
+                    (Some(index), false) => (index + 1) % DATE_FORMATS.len(),
+                    (Some(0), true) | (None, true) => DATE_FORMATS.len() - 1,
+                    (Some(index), true) => index - 1,
+                    (None, false) => 0,
+                };
+                self.save_date_format(DATE_FORMATS[next], false);
+            }
+            _ => {}
+        }
+    }
+
+    fn save_integer(&mut self, key: &str, value: i64, status: String) {
+        match self.store.set_integer("ui", key, value) {
+            Ok(config) => {
+                self.config = config;
+                self.set_saved(status);
+            }
+            Err(err) => self.set_error(format!("failed to save {key}: {err}")),
+        }
+    }
+
+    fn save_date_format(&mut self, format: &str, custom: bool) {
+        match self.store.set_string("ui", "date_format", format) {
+            Ok(config) => {
+                self.config = config;
+                self.set_saved(if custom {
+                    "custom timestamp format saved".to_string()
+                } else {
+                    "timestamp preset saved".to_string()
+                });
+            }
+            Err(err) => self.set_error(format!("failed to save timestamp format: {err}")),
+        }
+    }
+
     fn set_saved(&mut self, status: String) {
         self.status = Some(status);
         self.status_is_error = false;
@@ -523,6 +633,20 @@ fn semantic_chord(key: KeyEvent) -> Option<String> {
             character.to_ascii_lowercase()
         )
     })
+}
+
+pub(crate) fn valid_date_format(format: &str) -> bool {
+    !format.is_empty()
+        && !chrono::format::StrftimeItems::new(format)
+            .any(|item| matches!(item, chrono::format::Item::Error))
+}
+
+pub(crate) fn date_preview(format: &str) -> String {
+    if valid_date_format(format) {
+        crate::util::format_time(crate::util::now_ns(), format)
+    } else {
+        "Invalid format".to_string()
+    }
 }
 
 fn rules(config: &Config, target: RuleTarget) -> &[String] {
@@ -698,5 +822,37 @@ mod tests {
             app.modal,
             Some(Modal::KeyRecorder { ref chords }) if chords.len() == 2
         ));
+    }
+
+    #[test]
+    fn appearance_controls_save_each_change() {
+        let (mut app, path, dir) = persisted_app("appearance");
+        app.category = 2;
+
+        app.selected = 0;
+        app.handle_key(key(KeyCode::Right));
+        assert_eq!(Config::load_from(&path).unwrap().ui.preview_lines, 5);
+
+        app.selected = 1;
+        app.handle_key(key(KeyCode::Right));
+        assert_eq!(Config::load_from(&path).unwrap().ui.list_width_pct, 47);
+
+        app.selected = 2;
+        app.handle_key(key(KeyCode::Right));
+        assert_eq!(Config::load_from(&path).unwrap().ui.date_format, "%H:%M:%S");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn invalid_date_format_stays_in_editor() {
+        let mut app = App::new(Config::default());
+        app.modal = Some(Modal::DateEditor {
+            input: "%Q".to_string(),
+        });
+        app.handle_key(key(KeyCode::Enter));
+        assert!(matches!(app.modal, Some(Modal::DateEditor { .. })));
+        assert!(app.status_is_error);
+        assert!(!valid_date_format("%Q"));
+        assert!(valid_date_format("%Y-%m-%d"));
     }
 }

@@ -170,12 +170,10 @@ impl Config {
 }
 
 /// Lossless, atomic mutations of the active TOML configuration.
-#[allow(dead_code)]
 pub(crate) struct ConfigStore {
     path: PathBuf,
 }
 
-#[allow(dead_code)]
 impl ConfigStore {
     pub(crate) fn active() -> Self {
         Self {
