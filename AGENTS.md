@@ -37,6 +37,40 @@ cp target/release/recall ~/.local/bin/recall
 rm -f ~/.local/bin/recall.old
 ```
 
+### Testing installation changes locally
+
+Use the developer-only installer to build the current checkout and exercise the
+post-download installation flow:
+
+```sh
+./scripts/dev-install.sh
+```
+
+The default mode creates an isolated home, binary directory, configuration, and
+data directory under `target/dev-install.*`. It prints the command for starting
+an interactive shell in that sandbox. The sandbox must not read or modify the
+real user profile, Recall configuration, or history database.
+
+Use `--user` only when a real local installation is intentional:
+
+```sh
+./scripts/dev-install.sh --user
+./scripts/dev-install.sh --user --mode hooks
+```
+
+`--user` installs the current release build into
+`${RECALL_INSTALL_DIR:-$HOME/.local/bin}` and configures the current shell. The
+developer installer never imports history. It supports zsh, bash, and fish on
+Unix; select one explicitly with `--shell` when `$SHELL` is not suitable.
+
+Keep `scripts/dev-install.sh` independent from the production `install.sh`: the
+two scripts must not call or source each other. Shared installation behavior
+belongs in the `recall setup` and `recall config` Rust commands rather than
+duplicated shell fragments. The developer installer validates a build from the
+current checkout, while GitHub API access, release downloads, and checksum
+verification remain responsibilities of the production installer and release
+CI.
+
 ## Architecture
 
 ```
