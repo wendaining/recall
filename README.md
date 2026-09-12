@@ -154,6 +154,9 @@ For search and metadata hooks without automatic capture, use:
 recall setup zsh --mode hooks
 ```
 
+Run `recall setup zsh --remove` to remove only the blocks managed by recall.
+User-written setup remains untouched.
+
 `recall init` remains the low-level option for fully manual setups:
 
 ```zsh

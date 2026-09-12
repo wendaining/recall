@@ -133,6 +133,9 @@ recall setup zsh       # 也可以是 bash、fish、pwsh、powershell
 recall setup zsh --mode hooks
 ```
 
+运行 `recall setup zsh --remove` 只会移除 recall 托管的配置块，用户手写的配置
+保持不变。
+
 `recall init` 仍作为完全手动配置的底层接口：
 
 ```zsh
