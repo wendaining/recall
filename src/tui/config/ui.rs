@@ -22,7 +22,7 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App) {
     let areas = Layout::vertical([
         Constraint::Length(3),
         Constraint::Min(0),
-        Constraint::Length(1),
+        Constraint::Length(3),
     ])
     .split(frame.area());
     frame.render_widget(
@@ -35,16 +35,32 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App) {
     draw_categories(frame, app, panes[0]);
     draw_settings(frame, app, panes[1]);
 
-    let style = if app.status_is_error {
+    let status_style = if app.status_is_error {
         Style::default().fg(Color::Red)
     } else {
         Style::default().fg(Color::DarkGray)
     };
-    let status = app
-        .status
-        .as_deref()
-        .unwrap_or("Tab category · ↑/↓ setting · Space toggle · Enter edit · q quit · F1 help");
-    frame.render_widget(Paragraph::new(status).style(style), areas[2]);
+    let navigation_controls = Line::from(vec![
+        Span::styled("Tab / Shift+Tab", Style::default().fg(Color::Cyan)),
+        Span::raw(" change category  "),
+        Span::styled("↑/↓", Style::default().fg(Color::Cyan)),
+        Span::raw(" select setting"),
+    ]);
+    let action_controls = Line::from(vec![
+        Span::styled("Space", Style::default().fg(Color::Cyan)),
+        Span::raw(" toggle  "),
+        Span::styled("Enter", Style::default().fg(Color::Cyan)),
+        Span::raw(" edit/apply  "),
+        Span::styled("q", Style::default().fg(Color::Cyan)),
+        Span::raw(" quit  "),
+        Span::styled("F1", Style::default().fg(Color::Cyan)),
+        Span::raw(" help"),
+    ]);
+    let status = Line::styled(app.status.as_deref().unwrap_or("Ready"), status_style);
+    frame.render_widget(
+        Paragraph::new(vec![navigation_controls, action_controls, status]),
+        areas[2],
+    );
 
     if app.show_help {
         draw_help(frame);
@@ -70,7 +86,7 @@ fn draw_categories(frame: &mut Frame, app: &App, area: Rect) {
         })
         .collect::<Vec<_>>();
     frame.render_widget(
-        List::new(items).block(Block::bordered().title(" Categories ")),
+        List::new(items).block(Block::bordered().title(" Categories [Tab] ")),
         area,
     );
 }
@@ -366,6 +382,21 @@ mod tests {
         assert!(text.contains("Keybinding"));
         assert!(text.contains("Search shortcut"));
         assert!(text.contains("ctrl-t"));
+        assert!(text.contains("Tab / Shift+Tab"));
+    }
+
+    #[test]
+    fn keeps_controls_visible_while_showing_status() {
+        let mut app = App::new(crate::config::Config::default());
+        app.status = Some("failed to save setting".to_string());
+        app.status_is_error = true;
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| draw(frame, &mut app)).unwrap();
+
+        let text = terminal.backend().to_string();
+        assert!(text.contains("Tab / Shift+Tab"));
+        assert!(text.contains("failed to save setting"));
     }
 
     #[test]
