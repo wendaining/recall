@@ -1,6 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::config::{Config, ConfigStore};
+use crate::shell::Shell;
 
 const RECALL_COMMAND: &str = r"^\s*recall\b";
 const PASSWORD_COMMANDS: &str = r"^\s*(?:pass|gopass|op|bw)\b";
@@ -51,6 +52,9 @@ pub(crate) enum RuleTarget {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum Modal {
+    KeyRecorder {
+        chords: Vec<String>,
+    },
     RuleEditor {
         target: RuleTarget,
         index: Option<usize>,
@@ -89,11 +93,13 @@ pub(crate) struct App {
     pub(crate) status: Option<String>,
     pub(crate) status_is_error: bool,
     pub(crate) modal: Option<Modal>,
+    pub(crate) shell_name: String,
     store: ConfigStore,
 }
 
 impl App {
     pub(crate) fn new(config: Config) -> Self {
+        let shell_name = crate::util::login_shell();
         Self {
             config,
             category: 0,
@@ -103,6 +109,7 @@ impl App {
             status: None,
             status_is_error: false,
             modal: None,
+            shell_name,
             store: ConfigStore::active(),
         }
     }
@@ -237,6 +244,11 @@ impl App {
     }
 
     fn activate_selected(&mut self) {
+        if self.current_category() == Category::Keybinding {
+            self.modal = Some(Modal::KeyRecorder { chords: Vec::new() });
+            self.status = None;
+            return;
+        }
         if self.current_category() != Category::Capture {
             return;
         }
@@ -338,6 +350,38 @@ impl App {
             return;
         };
         match &mut modal {
+            Modal::KeyRecorder { chords } => match key.code {
+                KeyCode::Esc => {}
+                KeyCode::Enter if chords.is_empty() => {
+                    self.set_error("press a Ctrl or Alt shortcut first".to_string());
+                    self.modal = Some(modal);
+                }
+                KeyCode::Enter => {
+                    let spec = chords.join(" ");
+                    self.save_search_key(&spec);
+                }
+                KeyCode::Backspace => {
+                    chords.pop();
+                    self.modal = Some(modal);
+                }
+                _ => match semantic_chord(key) {
+                    Some(chord) if chords.len() < 2 => {
+                        chords.push(chord);
+                        self.status = None;
+                        self.modal = Some(modal);
+                    }
+                    Some(_) => {
+                        self.set_error("a shortcut can contain at most two chords".to_string());
+                        self.modal = Some(modal);
+                    }
+                    None => {
+                        self.set_error(
+                            "use Ctrl/Alt with a letter, or press Ctrl+Space".to_string(),
+                        );
+                        self.modal = Some(modal);
+                    }
+                },
+            },
             Modal::RuleEditor {
                 target,
                 index,
@@ -413,6 +457,38 @@ impl App {
         }
     }
 
+    fn save_search_key(&mut self, spec: &str) {
+        let Some(shell) = Shell::from_command(&self.shell_name) else {
+            self.set_error(format!(
+                "cannot validate shortcuts for unsupported shell {}",
+                self.shell_name
+            ));
+            self.modal = Some(Modal::KeyRecorder {
+                chords: spec.split_whitespace().map(str::to_string).collect(),
+            });
+            return;
+        };
+        if shell.semantic_search_key(spec).is_none() {
+            self.set_error(format!("{spec} is not supported by {}", shell.name));
+            self.modal = Some(Modal::KeyRecorder {
+                chords: spec.split_whitespace().map(str::to_string).collect(),
+            });
+            return;
+        }
+        match self.store.set_string("ui", "search_key", spec) {
+            Ok(config) => {
+                self.config = config;
+                self.set_saved("search shortcut saved; open a new shell to use it".to_string());
+            }
+            Err(err) => {
+                self.set_error(format!("failed to save search shortcut: {err}"));
+                self.modal = Some(Modal::KeyRecorder {
+                    chords: spec.split_whitespace().map(str::to_string).collect(),
+                });
+            }
+        }
+    }
+
     fn set_saved(&mut self, status: String) {
         self.status = Some(status);
         self.status_is_error = false;
@@ -422,6 +498,31 @@ impl App {
         self.status = Some(status);
         self.status_is_error = true;
     }
+}
+
+fn semantic_chord(key: KeyEvent) -> Option<String> {
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    let alt = key.modifiers.contains(KeyModifiers::ALT);
+    if ctrl == alt
+        || key
+            .modifiers
+            .intersects(KeyModifiers::SUPER | KeyModifiers::HYPER | KeyModifiers::META)
+    {
+        return None;
+    }
+    if ctrl && matches!(key.code, KeyCode::Null | KeyCode::Char(' ' | '@')) {
+        return Some("ctrl-space".to_string());
+    }
+    let KeyCode::Char(character) = key.code else {
+        return None;
+    };
+    character.is_ascii_alphabetic().then(|| {
+        format!(
+            "{}-{}",
+            if ctrl { "ctrl" } else { "alt" },
+            character.to_ascii_lowercase()
+        )
+    })
 }
 
 fn rules(config: &Config, target: RuleTarget) -> &[String] {
@@ -471,6 +572,7 @@ mod tests {
         let config = Config::default();
         std::fs::write(&path, toml::to_string_pretty(&config).unwrap()).unwrap();
         let mut app = App::new(config);
+        app.shell_name = "zsh".to_string();
         app.store = ConfigStore::at(path.clone());
         (app, path, dir)
     }
@@ -564,5 +666,37 @@ mod tests {
             ["^large"]
         );
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn records_two_chords_and_saves_semantic_key() {
+        let (mut app, path, dir) = persisted_app("search-key");
+        app.handle_key(key(KeyCode::Enter));
+        app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL));
+        app.handle_key(KeyEvent::new(KeyCode::Null, KeyModifiers::CONTROL));
+        app.handle_key(key(KeyCode::Enter));
+
+        assert!(app.modal.is_none());
+        assert_eq!(
+            Config::load_from(&path).unwrap().ui.search_key,
+            "ctrl-x ctrl-space"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn rejects_unmodified_and_third_chords() {
+        let mut app = App::new(Config::default());
+        app.modal = Some(Modal::KeyRecorder { chords: Vec::new() });
+        app.handle_key(key(KeyCode::Char('r')));
+        assert!(app.status_is_error);
+        app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::ALT));
+        app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL));
+        app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert!(app.status.as_deref().unwrap().contains("at most two"));
+        assert!(matches!(
+            app.modal,
+            Some(Modal::KeyRecorder { ref chords }) if chords.len() == 2
+        ));
     }
 }

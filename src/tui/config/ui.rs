@@ -106,10 +106,7 @@ fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
 
 fn setting_rows(app: &App) -> Vec<(String, String)> {
     match app.current_category() {
-        Category::Keybinding => vec![(
-            "Search shortcut".to_string(),
-            app.config.ui.search_key.clone(),
-        )],
+        Category::Keybinding => keybinding_rows(app),
         Category::Capture => capture_rows(app),
         Category::Appearance => vec![
             (
@@ -126,7 +123,7 @@ fn setting_rows(app: &App) -> Vec<(String, String)> {
             ),
         ],
         Category::Shell => vec![
-            ("Detected shell".to_string(), crate::util::login_shell()),
+            ("Detected shell".to_string(), app.shell_name.clone()),
             (
                 "Proxy active".to_string(),
                 on_off(std::env::var_os("RECALL_PROXY_ACTIVE").is_some()),
@@ -134,6 +131,26 @@ fn setting_rows(app: &App) -> Vec<(String, String)> {
             ("Setup mode".to_string(), "checking profile…".to_string()),
         ],
     }
+}
+
+fn keybinding_rows(app: &App) -> Vec<(String, String)> {
+    let mut rows = vec![(
+        "Search shortcut".to_string(),
+        app.config.ui.search_key.clone(),
+    )];
+    for (name, label) in [
+        ("zsh", "zsh"),
+        ("bash", "bash"),
+        ("fish", "fish"),
+        ("pwsh", "PowerShell"),
+    ] {
+        let value = crate::shell::Shell::from_name(name)
+            .and_then(|shell| shell.semantic_search_key(&app.config.ui.search_key))
+            .map(|encoded| format!("Compatible · {encoded}"))
+            .unwrap_or_else(|| "Custom / not validated".to_string());
+        rows.push((format!("  {label}"), value));
+    }
+    rows
 }
 
 fn capture_rows(app: &App) -> Vec<(String, String)> {
@@ -188,6 +205,21 @@ fn draw_modal(frame: &mut Frame, modal: &Modal) {
     let area = centered_rect(72, 40, frame.area());
     frame.render_widget(Clear, area);
     match modal {
+        Modal::KeyRecorder { chords } => {
+            let value = if chords.is_empty() {
+                "Waiting for a shortcut…".to_string()
+            } else {
+                chords.join("  then  ")
+            };
+            frame.render_widget(
+                Paragraph::new(format!(
+                    "{value}\n\nPress one or two Ctrl/Alt chords.\nEnter save · Backspace remove · Esc cancel"
+                ))
+                .block(Block::bordered().title(" Record search shortcut "))
+                .wrap(Wrap { trim: false }),
+                area,
+            );
+        }
         Modal::RuleEditor {
             target,
             index,
