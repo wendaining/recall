@@ -4,7 +4,7 @@ use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::clipboard::Clipboard;
-use crate::config::Config;
+use crate::config::{Config, ConfigStore};
 use crate::db::{Db, queries};
 use crate::model::Block;
 
@@ -56,10 +56,11 @@ pub struct App {
     pub status_is_error: bool,
     pub should_quit: bool,
     pub show_help: bool,
+    config_store: ConfigStore,
 }
 
 impl App {
-    pub fn new(config: Config, cmd_only: bool, initial_query: Option<String>) -> Result<Self> {
+    pub fn new(mut config: Config, cmd_only: bool, initial_query: Option<String>) -> Result<Self> {
         let db = Db::open(&config.general.db_path)?;
         if config.retention.auto_prune && config.retention.retention_days > 0 {
             let _ = queries::prune(
@@ -69,11 +70,8 @@ impl App {
             );
         }
         let clipboard = crate::clipboard::ClipboardChain::detect(&config.clipboard);
-        let list_width_pct = queries::get_setting(&db.conn, LIST_WIDTH_SETTING)
-            .ok()
-            .flatten()
-            .and_then(|value| value.parse::<u16>().ok())
-            .unwrap_or(config.ui.list_width_pct);
+        let config_store = ConfigStore::active();
+        let (list_width_pct, migration_error) = migrate_list_width(&db, &mut config, &config_store);
         let mut app = Self {
             db,
             config,
@@ -94,7 +92,11 @@ impl App {
             status_is_error: false,
             should_quit: false,
             show_help: false,
+            config_store,
         };
+        if let Some(error) = migration_error {
+            app.set_error(error);
+        }
         app.refresh();
         Ok(app)
     }
@@ -256,9 +258,16 @@ impl App {
         if next == self.list_width_pct {
             return;
         }
-        self.list_width_pct = next;
-        match queries::set_setting(&self.db.conn, LIST_WIDTH_SETTING, &next.to_string()) {
-            Ok(()) => self.set_status(format!("list width {next}%")),
+        match self
+            .config_store
+            .set_integer("ui", "list_width_pct", i64::from(next))
+        {
+            Ok(config) => {
+                self.config = config;
+                self.list_width_pct = next;
+                let _ = queries::delete_setting(&self.db.conn, LIST_WIDTH_SETTING);
+                self.set_status(format!("list width {next}%"));
+            }
             Err(err) => self.set_error(format!("failed to save layout: {err}")),
         }
     }
@@ -368,6 +377,43 @@ impl App {
     }
 }
 
+fn migrate_list_width(db: &Db, config: &mut Config, store: &ConfigStore) -> (u16, Option<String>) {
+    let legacy = match queries::get_setting(&db.conn, LIST_WIDTH_SETTING) {
+        Ok(Some(value)) => match value.parse::<u16>() {
+            Ok(value) => clamp_list_width(value),
+            Err(err) => {
+                return (
+                    clamp_list_width(config.ui.list_width_pct),
+                    Some(format!("invalid legacy list width `{value}`: {err}")),
+                );
+            }
+        },
+        Ok(None) => return (clamp_list_width(config.ui.list_width_pct), None),
+        Err(err) => {
+            return (
+                clamp_list_width(config.ui.list_width_pct),
+                Some(format!("failed to read legacy list width: {err}")),
+            );
+        }
+    };
+
+    match store.set_integer("ui", "list_width_pct", i64::from(legacy)) {
+        Ok(updated) => {
+            *config = updated;
+            let error = queries::delete_setting(&db.conn, LIST_WIDTH_SETTING)
+                .err()
+                .map(|err| format!("list width migrated, but legacy cleanup failed: {err}"));
+            (legacy, error)
+        }
+        Err(err) => (
+            legacy,
+            Some(format!(
+                "using legacy list width because config migration failed: {err}"
+            )),
+        ),
+    }
+}
+
 fn clamp_list_width(pct: u16) -> u16 {
     pct.clamp(LIST_WIDTH_MIN, LIST_WIDTH_MAX)
 }
@@ -423,7 +469,7 @@ mod tests {
         }
     }
 
-    fn test_app(blocks: &[Block]) -> (App, Arc<Mutex<Option<String>>>) {
+    fn test_app(blocks: &[Block]) -> (App, Arc<Mutex<Option<String>>>, std::path::PathBuf) {
         let db = Db::open_in_memory().unwrap();
         for block in blocks {
             queries::insert(&db.conn, block).unwrap();
@@ -432,6 +478,18 @@ mod tests {
         let clipboard = TestClipboard {
             copied: copied.clone(),
         };
+        let dir = std::env::temp_dir().join(format!(
+            "recall-search-ui-test-{}-{}",
+            std::process::id(),
+            ulid::Ulid::generate()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config_path = dir.join("config.toml");
+        std::fs::write(
+            &config_path,
+            toml::to_string_pretty(&Config::default()).unwrap(),
+        )
+        .unwrap();
         let mut app = App {
             db,
             config: Config::default(),
@@ -452,9 +510,10 @@ mod tests {
             status_is_error: false,
             should_quit: false,
             show_help: false,
+            config_store: ConfigStore::at(config_path),
         };
         app.refresh();
-        (app, copied)
+        (app, copied, dir)
     }
 
     #[test]
@@ -463,7 +522,7 @@ mod tests {
             block("old", "first command", "first output", 100),
             block("new", "second command", "second output", 200),
         ];
-        let (mut app, copied) = test_app(&blocks);
+        let (mut app, copied, dir) = test_app(&blocks);
 
         app.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL));
         app.move_selection(1);
@@ -474,28 +533,35 @@ mod tests {
             copied.lock().unwrap().as_deref(),
             Some("$ first command\nfirst output\n\n$ second command\nsecond output")
         );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
     fn arrows_resize_and_persist_list_width() {
-        let (mut app, _) = test_app(&[block("one", "command", "output", 100)]);
+        let (mut app, _, dir) = test_app(&[block("one", "command", "output", 100)]);
 
         app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
         assert_eq!(app.list_width_pct, 47);
         assert_eq!(
-            queries::get_setting(&app.db.conn, LIST_WIDTH_SETTING)
-                .unwrap()
-                .as_deref(),
-            Some("47")
+            queries::get_setting(&app.db.conn, LIST_WIDTH_SETTING).unwrap(),
+            None
         );
 
         app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
         assert_eq!(app.list_width_pct, 42);
+        assert_eq!(
+            Config::load_from(&dir.join("config.toml"))
+                .unwrap()
+                .ui
+                .list_width_pct,
+            42
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
     fn list_width_is_clamped() {
-        let (mut app, _) = test_app(&[]);
+        let (mut app, _, dir) = test_app(&[]);
         app.list_width_pct = LIST_WIDTH_MIN;
 
         app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
@@ -503,16 +569,74 @@ mod tests {
 
         app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
         assert_eq!(app.list_width_pct, LIST_WIDTH_MIN + LIST_WIDTH_STEP);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
     fn q_does_not_leave_detail_or_quit() {
-        let (mut app, _) = test_app(&[block("one", "command", "output", 100)]);
+        let (mut app, _, dir) = test_app(&[block("one", "command", "output", 100)]);
         app.focus = Focus::Detail;
 
         app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
 
         assert_eq!(app.focus, Focus::Detail);
         assert!(!app.should_quit);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn migrates_legacy_width_only_after_config_save() {
+        let db = Db::open_in_memory().unwrap();
+        queries::set_setting(&db.conn, LIST_WIDTH_SETTING, "60").unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "recall-width-migration-test-{}-{}",
+            std::process::id(),
+            ulid::Ulid::generate()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, toml::to_string_pretty(&Config::default()).unwrap()).unwrap();
+        let store = ConfigStore::at(path.clone());
+        let mut config = Config::default();
+
+        let (width, error) = migrate_list_width(&db, &mut config, &store);
+
+        assert_eq!(width, 60);
+        assert!(error.is_none());
+        assert_eq!(config.ui.list_width_pct, 60);
+        assert_eq!(
+            queries::get_setting(&db.conn, LIST_WIDTH_SETTING).unwrap(),
+            None
+        );
+        assert_eq!(Config::load_from(&path).unwrap().ui.list_width_pct, 60);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn keeps_legacy_width_when_config_save_fails() {
+        let db = Db::open_in_memory().unwrap();
+        queries::set_setting(&db.conn, LIST_WIDTH_SETTING, "55").unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "recall-width-failure-test-{}-{}",
+            std::process::id(),
+            ulid::Ulid::generate()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "[invalid").unwrap();
+        let store = ConfigStore::at(path);
+        let mut config = Config::default();
+
+        let (width, error) = migrate_list_width(&db, &mut config, &store);
+
+        assert_eq!(width, 55);
+        assert!(error.is_some());
+        assert_eq!(
+            queries::get_setting(&db.conn, LIST_WIDTH_SETTING)
+                .unwrap()
+                .as_deref(),
+            Some("55")
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

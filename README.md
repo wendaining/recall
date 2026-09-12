@@ -196,11 +196,11 @@ The key is configured in `~/.config/recall/config.toml` as a semantic name that
 search_key = "alt-r"   # alt-r, ctrl-t, or a two-stroke sequence "ctrl-x ctrl-r"
 ```
 
-Supported forms are `alt-<letter>`, `ctrl-<letter>`, or a space-separated
-sequence such as `"ctrl-x ctrl-r"`. The default is `alt-r`. After editing the
-file, reopen the shell (or re-run `eval "$(recall init zsh)"`) to apply it.
-PSReadLine binds a single chord, so on Windows a two-stroke sequence uses its
-first key.
+Supported forms are `alt-<letter>`, `ctrl-<letter>`, `ctrl-space`, or a
+space-separated sequence such as `"ctrl-x ctrl-r"`. The default is `alt-r`.
+Run `recall config` to record and validate a shortcut interactively. Reopen the
+shell after changing it; PowerShell sequences are passed to PSReadLine as a
+comma-separated chord.
 
 #### macOS: the Option key
 
@@ -297,6 +297,7 @@ recall search --cmd-only   # print the selection (used by the zsh widget)
 recall setup [shell]       # configure automatic capture and shell hooks
 recall doctor              # diagnose config, databases and clipboard
 recall prune               # drop output older than the retention window
+recall config              # open the interactive settings TUI
 recall config path|show|default
 recall uuid
 ```
@@ -309,8 +310,29 @@ recall uuid
 > database is stored, which command output is recorded, secrets filtering,
 > retention, and clipboard behavior. The defaults work out of the box, but a
 > deliberate configuration helps avoid retaining noisy or sensitive output.
-> Use `recall config path`, `recall config show`, and `recall config default`
-> to locate the file, inspect the active settings, and view a complete template.
+> Run `recall config` to review capture rules before recording sensitive output.
+> `recall config path`, `recall config show`, and `recall config default` remain
+> available to locate the file, inspect the active settings, and print a template.
+
+### Interactive configuration
+
+```sh
+recall config
+```
+
+The settings TUI manages the search shortcut, secret and interactive-command
+filtering, command/output exclusion regexes, display preferences, and shell
+integration. Changes are validated and saved atomically as you make them;
+existing TOML comments and unrelated settings are retained. Shortcut changes
+take effect in a new shell.
+
+- `Tab` / `Shift+Tab`: change category
+- `Up` / `Down`: choose a setting
+- `Left` / `Right`: adjust display values or timestamp presets
+- `Space`: toggle a setting
+- `Enter`: edit, record, or apply
+- `a` / `e` / `d`: add, edit, or delete a custom capture rule
+- `F1`: help; `Esc` / `q`: back or quit
 
 `~/.config/recall/config.toml` on Linux/macOS and
 `%APPDATA%\recall\config.toml` on Windows (all fields optional;
@@ -338,6 +360,8 @@ backend = "auto"             # auto | arboard | osc52 | wl-copy | xclip | xsel
 [ui]
 search_key = "alt-r"         # key that opens recall (alt-r, ctrl-t, "ctrl-x ctrl-r")
 list_width_pct = 42          # initial list pane width; resizing in the TUI persists
+preview_lines = 4            # output lines shown for each result
+date_format = "%Y-%m-%d %H:%M:%S"
 ```
 
 ## How it works

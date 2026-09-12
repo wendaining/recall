@@ -27,8 +27,10 @@ pub(crate) enum HistoryFormat {
 struct KeyEncoding {
     alt_prefix: &'static str,
     ctrl_prefix: &'static str,
+    ctrl_space: &'static str,
     ctrl_uppercase: bool,
     max_chords: usize,
+    chord_separator: &'static str,
 }
 
 pub(crate) struct Shell {
@@ -51,8 +53,10 @@ static SHELLS: &[Shell] = &[
         key_encoding: Some(KeyEncoding {
             alt_prefix: "^[",
             ctrl_prefix: "^",
+            ctrl_space: "^@",
             ctrl_uppercase: true,
             max_chords: usize::MAX,
+            chord_separator: "",
         }),
         history_root: Some(HistoryRoot::Home),
         history_tail: &[".zsh_history"],
@@ -66,8 +70,10 @@ static SHELLS: &[Shell] = &[
         key_encoding: Some(KeyEncoding {
             alt_prefix: "\\e",
             ctrl_prefix: "\\C-",
+            ctrl_space: "\\C-@",
             ctrl_uppercase: false,
             max_chords: usize::MAX,
+            chord_separator: "",
         }),
         history_root: Some(HistoryRoot::Home),
         history_tail: &[".bash_history"],
@@ -81,8 +87,10 @@ static SHELLS: &[Shell] = &[
         key_encoding: Some(KeyEncoding {
             alt_prefix: "\\e",
             ctrl_prefix: "\\c",
+            ctrl_space: "\\c@",
             ctrl_uppercase: false,
             max_chords: usize::MAX,
+            chord_separator: "",
         }),
         history_root: Some(HistoryRoot::Data),
         history_tail: &["fish", "fish_history"],
@@ -96,8 +104,10 @@ static SHELLS: &[Shell] = &[
         key_encoding: Some(KeyEncoding {
             alt_prefix: "Alt+",
             ctrl_prefix: "Ctrl+",
+            ctrl_space: "Ctrl+Spacebar",
             ctrl_uppercase: false,
-            max_chords: 1,
+            max_chords: 2,
+            chord_separator: ",",
         }),
         history_root: Some(HistoryRoot::PowerShellData),
         history_tail: &["PSReadLine", "ConsoleHost_history.txt"],
@@ -111,8 +121,10 @@ static SHELLS: &[Shell] = &[
         key_encoding: Some(KeyEncoding {
             alt_prefix: "Alt+",
             ctrl_prefix: "Ctrl+",
+            ctrl_space: "Ctrl+Spacebar",
             ctrl_uppercase: false,
-            max_chords: 1,
+            max_chords: 2,
+            chord_separator: ",",
         }),
         history_root: Some(HistoryRoot::PowerShellData),
         history_tail: &["PSReadLine", "ConsoleHost_history.txt"],
@@ -192,7 +204,10 @@ impl Shell {
         };
 
         let mut out = String::new();
-        for key in keys.iter().take(encoding.max_chords) {
+        for (index, key) in keys.iter().take(encoding.max_chords).enumerate() {
+            if index > 0 {
+                out.push_str(encoding.chord_separator);
+            }
             match key {
                 Key::Alt(ch) => {
                     out.push_str(encoding.alt_prefix);
@@ -206,9 +221,16 @@ impl Shell {
                         ch.to_ascii_lowercase()
                     });
                 }
+                Key::CtrlSpace => out.push_str(encoding.ctrl_space),
             }
         }
         out
+    }
+
+    pub(crate) fn semantic_search_key(&self, spec: &str) -> Option<String> {
+        let keys = parse_key_sequence(spec)?;
+        let encoding = self.key_encoding?;
+        (keys.len() <= encoding.max_chords).then(|| self.search_key(spec))
     }
 
     pub(crate) fn history_path(&self) -> Option<PathBuf> {
@@ -276,18 +298,24 @@ struct HistoryDirs<'a> {
 enum Key {
     Alt(char),
     Ctrl(char),
+    CtrlSpace,
 }
 
 fn parse_key_sequence(spec: &str) -> Option<Vec<Key>> {
     let mut keys = Vec::new();
     for token in spec.split_whitespace() {
         let (modifier, rest) = token.split_once('-')?;
+        let modifier = modifier.to_ascii_lowercase();
+        if matches!(modifier.as_str(), "ctrl" | "control") && rest.eq_ignore_ascii_case("space") {
+            keys.push(Key::CtrlSpace);
+            continue;
+        }
         let mut chars = rest.chars();
         let ch = chars.next()?;
         if chars.next().is_some() || !ch.is_ascii_alphabetic() {
             return None;
         }
-        keys.push(match modifier.to_ascii_lowercase().as_str() {
+        keys.push(match modifier.as_str() {
             "alt" | "meta" | "option" => Key::Alt(ch),
             "ctrl" | "control" => Key::Ctrl(ch),
             _ => return None,
@@ -324,7 +352,7 @@ mod tests {
             Shell::from_name("pwsh")
                 .unwrap()
                 .search_key("ctrl-x ctrl-r"),
-            "Ctrl+x"
+            "Ctrl+x,Ctrl+r"
         );
         assert_eq!(
             Shell::from_name("zsh").unwrap().search_key("ctrl-x ctrl-r"),
@@ -345,6 +373,22 @@ mod tests {
         assert_eq!(
             Shell::from_name("powershell").unwrap().search_key("alt-r"),
             "Alt+r"
+        );
+        assert_eq!(
+            Shell::from_name("zsh").unwrap().search_key("ctrl-space"),
+            "^@"
+        );
+        assert_eq!(
+            Shell::from_name("bash").unwrap().search_key("ctrl-space"),
+            "\\C-@"
+        );
+        assert_eq!(
+            Shell::from_name("fish").unwrap().search_key("ctrl-space"),
+            "\\c@"
+        );
+        assert_eq!(
+            Shell::from_name("pwsh").unwrap().search_key("ctrl-space"),
+            "Ctrl+Spacebar"
         );
     }
 

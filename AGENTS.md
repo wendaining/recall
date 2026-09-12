@@ -79,6 +79,7 @@ assets remain responsibilities of release CI.
 
 ```
 src/
+  atomic_file.rs   same-directory atomic replacement with permission retention
   main.rs          module wiring
   cli.rs           clap command definitions
   config.rs        TOML config + default paths (RECALL_CONFIG override)
@@ -97,7 +98,9 @@ src/
   tui/
     app.rs         App state + key handling
     ui.rs          ratatui rendering
-    mod.rs         terminal setup (renders to stderr) + event loop
+    runtime.rs     shared raw-mode / alternate-screen terminal lifecycle
+    config/        interactive configuration state, effects, and rendering
+    mod.rs         history TUI event loop (renders to stderr)
   commands/        one module per CLI command; optional import adapters live
     import/        below import.rs and must not leak into core models/config
 shell/recall.zsh   embedded shell integrations (include_str!)
@@ -183,6 +186,25 @@ for editing (exit 0); `Ctrl+Enter` exits with code 2, which tells the widget to
 execute immediately (`Ctrl+E` is the fallback where `Ctrl+Enter` is not
 distinguishable, e.g. Windows Terminal).
 
+### Configuration TUI
+
+- Bare `recall config` opens the settings TUI; `path`, `show`, and `default`
+  remain non-interactive. Keep `RECALL_CONFIG` resolution identical for reads,
+  writes, and path display.
+- `ConfigStore` reloads the active TOML before every mutation, validates the
+  complete effective config, and replaces it atomically. Preserve comments,
+  unrelated keys, permissions, newline style, BOM, and symlink targets. Never
+  overwrite a malformed or unsupported config.
+- TOML is the source of truth for UI preferences. The legacy
+  `ui.list_width_pct` SQLite setting is read only for one-time migration and is
+  deleted only after the TOML write succeeds.
+- Configuration UI state and rendering must stay testable without a live
+  terminal. Add PTY coverage for input and terminal restoration; keep a ConPTY
+  smoke test for Windows.
+- Shell integration actions call the same setup inspection and apply functions
+  as `recall setup`. Do not duplicate profile rendering or marker handling in
+  the TUI.
+
 ### Key invariants
 
 - The end marker must be emitted in-band before the prompt, otherwise the next
@@ -212,7 +234,7 @@ distinguishable, e.g. Windows Terminal).
   - PowerShell: capture `$?` and `$LASTEXITCODE` before any statement changes
     them, then restore them before rendering the user's prompt. The integrations
     guard against double-loading and only install when PSReadLine is present.
-    `Set-PSReadLineKeyHandler` binds a single chord.
+    PSReadLine multi-stroke shortcuts use a comma-separated chord string.
 - Output is stored zstd-compressed; a truncated plain-text projection lives in
   `output_text` for FTS. Keep the two in sync.
 - DB access uses WAL + `busy_timeout`; multiple processes may write.

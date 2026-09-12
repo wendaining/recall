@@ -30,7 +30,7 @@ pub enum Command {
     Prune,
     /// Download and install the latest stable release.
     Update(UpdateArgs),
-    /// Show or locate the configuration file.
+    /// Configure recall interactively, or show and locate its configuration.
     Config(ConfigArgs),
     /// Print a fresh recall id.
     Uuid,
@@ -149,7 +149,7 @@ pub enum ImportSource {
 #[derive(Debug, Args)]
 pub struct ConfigArgs {
     #[command(subcommand)]
-    pub action: ConfigAction,
+    pub action: Option<ConfigAction>,
 }
 
 #[derive(Debug, Args)]
@@ -203,5 +203,20 @@ mod tests {
             args.profile.unwrap(),
             std::path::PathBuf::from("profile.ps1")
         );
+    }
+
+    #[test]
+    fn config_accepts_interactive_and_legacy_actions() {
+        let cli = Cli::try_parse_from(["recall", "config"]).unwrap();
+        let Some(Command::Config(args)) = cli.command else {
+            panic!("expected config command");
+        };
+        assert!(args.action.is_none());
+
+        let cli = Cli::try_parse_from(["recall", "config", "show"]).unwrap();
+        let Some(Command::Config(args)) = cli.command else {
+            panic!("expected config command");
+        };
+        assert!(matches!(args.action, Some(ConfigAction::Show)));
     }
 }

@@ -1,9 +1,9 @@
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
 
+use crate::atomic_file;
 use crate::cli::{SetupArgs, SetupMode};
 use crate::shell::Shell;
 use crate::util;
@@ -17,7 +17,7 @@ const INTEGRATION_NO_EOL_END: &str = "# <<< recall setup integration-no-eol <<<"
 const LEGACY_START: &str = "# >>> recall installer >>>";
 const LEGACY_END: &str = "# <<< recall installer <<<";
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ManagedSetup {
     Auto,
     Hooks,
@@ -28,7 +28,7 @@ pub(crate) enum ManagedSetup {
     Invalid,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ProfileInspection {
     pub(crate) setup: ManagedSetup,
     pub(crate) init_count: usize,
@@ -49,31 +49,29 @@ struct ProfileText {
 }
 
 pub fn run(args: SetupArgs) -> Result<()> {
-    let shell = resolve_shell(args.shell.as_deref())?;
-    let profile = args
-        .profile
-        .or_else(|| shell.rc_path())
-        .ok_or_else(|| anyhow!("could not determine the startup file for {}", shell.name))?;
+    let result = apply(args.shell.as_deref(), args.profile, args.mode, args.remove)?;
 
     if args.remove {
-        let changed = update_profile(&profile, shell, args.mode, true)?;
         println!(
             "shell setup: {} ({})",
-            profile.display(),
-            if changed { "removed" } else { "not present" }
+            result.profile.display(),
+            if result.changed {
+                "removed"
+            } else {
+                "not present"
+            }
         );
         return Ok(());
     }
 
-    let changed = update_profile(&profile, shell, args.mode, false)?;
     println!(
         "shell setup: {} ({}; {})",
-        profile.display(),
+        result.profile.display(),
         match args.mode {
             SetupMode::Auto => "automatic output capture",
             SetupMode::Hooks => "hooks only",
         },
-        if changed {
+        if result.changed {
             "updated"
         } else {
             "already current"
@@ -87,8 +85,36 @@ pub fn run(args: SetupArgs) -> Result<()> {
     Ok(())
 }
 
+pub(crate) struct SetupResult {
+    pub(crate) profile: PathBuf,
+    pub(crate) changed: bool,
+}
+
+pub(crate) fn apply(
+    shell_name: Option<&str>,
+    profile: Option<PathBuf>,
+    mode: SetupMode,
+    remove: bool,
+) -> Result<SetupResult> {
+    let shell = resolve_shell(shell_name)?;
+    let profile = profile
+        .or_else(|| shell.rc_path())
+        .ok_or_else(|| anyhow!("could not determine the startup file for {}", shell.name))?;
+    let changed = update_profile(&profile, shell, mode, remove)?;
+    Ok(SetupResult { profile, changed })
+}
+
+pub(crate) fn inspect_shell(shell_name: &str) -> Result<(PathBuf, ProfileInspection)> {
+    let shell = resolve_shell(Some(shell_name))?;
+    let profile = shell
+        .rc_path()
+        .ok_or_else(|| anyhow!("could not determine the startup file for {}", shell.name))?;
+    let inspection = inspect_profile(&profile)?;
+    Ok((profile, inspection))
+}
+
 pub(crate) fn inspect_profile(path: &Path) -> Result<ProfileInspection> {
-    let path = resolve_profile_target(path)?;
+    let path = atomic_file::resolve_target(path)?;
     let profile = read_profile(&path)?;
     Ok(inspect_text(&profile.text))
 }
@@ -143,7 +169,7 @@ fn resolve_shell(name: Option<&str>) -> Result<&'static Shell> {
 }
 
 fn update_profile(path: &Path, shell: &Shell, mode: SetupMode, remove: bool) -> Result<bool> {
-    let write_path = resolve_profile_target(path)?;
+    let write_path = atomic_file::resolve_target(path)?;
     let existing = read_profile(&write_path)?;
     let cleaned = remove_managed_blocks(&existing.text)?;
     let rendered = if remove {
@@ -162,16 +188,6 @@ fn update_profile(path: &Path, shell: &Shell, mode: SetupMode, remove: bool) -> 
     }
     write_profile(&write_path, &existing, &rendered)?;
     Ok(true)
-}
-
-fn resolve_profile_target(path: &Path) -> Result<PathBuf> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => fs::canonicalize(path)
-            .with_context(|| format!("resolving startup file symlink {}", path.display())),
-        Ok(_) => Ok(path.to_path_buf()),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(path.to_path_buf()),
-        Err(err) => Err(err).with_context(|| format!("inspecting {}", path.display())),
-    }
 }
 
 fn read_profile(path: &Path) -> Result<ProfileText> {
@@ -414,72 +430,8 @@ fn quote_powershell(value: &str) -> String {
 }
 
 fn write_profile(path: &Path, original: &ProfileText, text: &str) -> Result<()> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| anyhow!("startup file has no parent: {}", path.display()))?;
-    fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
     let bytes = encode_text(text, original.encoding, original.newline);
-    let permissions = fs::metadata(path)
-        .ok()
-        .map(|metadata| metadata.permissions());
-
-    let mut temp_path = None;
-    for attempt in 0..100 {
-        let candidate = parent.join(format!(
-            ".recall-setup-{}-{attempt}.tmp",
-            std::process::id()
-        ));
-        match OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&candidate)
-        {
-            Ok(mut file) => {
-                file.write_all(&bytes)?;
-                file.sync_all()?;
-                if let Some(permissions) = permissions.clone() {
-                    fs::set_permissions(&candidate, permissions)?;
-                }
-                temp_path = Some(candidate);
-                break;
-            }
-            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(err) => return Err(err).context("creating a temporary startup file"),
-        }
-    }
-    let temp_path =
-        temp_path.ok_or_else(|| anyhow!("could not create a temporary startup file"))?;
-    replace_file(&temp_path, path).inspect_err(|_| {
-        let _ = fs::remove_file(&temp_path);
-    })?;
-    Ok(())
-}
-
-#[cfg(not(windows))]
-fn replace_file(from: &Path, to: &Path) -> Result<()> {
-    fs::rename(from, to).with_context(|| format!("replacing {}", to.display()))
-}
-
-#[cfg(windows)]
-fn replace_file(from: &Path, to: &Path) -> Result<()> {
-    use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Storage::FileSystem::{
-        MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
-    };
-
-    let from: Vec<u16> = from.as_os_str().encode_wide().chain(Some(0)).collect();
-    let to: Vec<u16> = to.as_os_str().encode_wide().chain(Some(0)).collect();
-    let result = unsafe {
-        MoveFileExW(
-            from.as_ptr(),
-            to.as_ptr(),
-            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-        )
-    };
-    if result == 0 {
-        return Err(std::io::Error::last_os_error()).context("replacing the startup file");
-    }
-    Ok(())
+    atomic_file::replace(path, &bytes, "setup")
 }
 
 #[cfg(test)]
@@ -616,6 +568,22 @@ mod tests {
         assert!(update_profile(&path, shell, SetupMode::Auto, true).unwrap());
         assert_eq!(fs::read_to_string(&path).unwrap(), "echo user\n");
         assert!(!update_profile(&path, shell, SetupMode::Auto, true).unwrap());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn shared_apply_api_updates_an_explicit_profile() {
+        let (path, dir) = temp_profile("shared-api");
+        fs::write(&path, "echo user\n").unwrap();
+
+        let result = apply(Some("zsh"), Some(path.clone()), SetupMode::Hooks, false).unwrap();
+
+        assert_eq!(result.profile, path);
+        assert!(result.changed);
+        assert_eq!(
+            inspect_profile(&result.profile).unwrap().setup,
+            ManagedSetup::Hooks
+        );
         fs::remove_dir_all(dir).unwrap();
     }
 

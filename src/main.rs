@@ -1,3 +1,4 @@
+mod atomic_file;
 mod capture;
 mod cli;
 mod clipboard;

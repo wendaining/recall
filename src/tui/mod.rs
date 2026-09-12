@@ -1,28 +1,19 @@
 mod app;
+pub(crate) mod config;
+mod runtime;
 mod ui;
 
-use std::io;
 use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::Duration;
 
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyEventKind};
-#[cfg(not(windows))]
-use crossterm::event::{
-    KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
-};
-use crossterm::execute;
-use crossterm::terminal::{
-    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
-};
 use ratatui::Terminal;
-use ratatui::backend::CrosstermBackend;
 
 use crate::cli::SearchArgs;
 use crate::config::Config;
 use app::{Action, App};
-
-type Backend = CrosstermBackend<io::Stderr>;
+use runtime::{Backend, TerminalGuard};
 
 /// Launch the interactive TUI.
 ///
@@ -53,7 +44,7 @@ pub fn run(
     if let Some(command) = app.selected_command {
         println!("{command}");
         use std::io::Write;
-        let _ = io::stdout().flush();
+        let _ = std::io::stdout().flush();
         if app.action == Action::Rerun {
             code = 2;
         }
@@ -87,51 +78,4 @@ fn event_loop(
         }
     }
     Ok(())
-}
-
-/// Owns the terminal state and restores it on drop, so a panic never leaves the
-/// user's terminal in raw mode.
-struct TerminalGuard {
-    terminal: Terminal<Backend>,
-}
-
-impl TerminalGuard {
-    fn enter() -> Result<Self> {
-        enable_raw_mode()?;
-        let mut stderr = io::stderr();
-        execute!(stderr, EnterAlternateScreen)?;
-        // Ask the terminal (kitty et al.) to report modifier keys such as
-        // Ctrl+Enter distinctly. Not used on Windows: Windows Terminal's
-        // kitty-protocol support conflicts with ConPTY; Ctrl+E is the fallback.
-        #[cfg(not(windows))]
-        let _ = execute!(
-            stderr,
-            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
-        );
-        let terminal = Terminal::new(CrosstermBackend::new(stderr))?;
-        Ok(Self { terminal })
-    }
-
-    fn terminal(&mut self) -> &mut Terminal<Backend> {
-        &mut self.terminal
-    }
-
-    fn leave(&mut self) {
-        let _ = disable_raw_mode();
-        #[cfg(not(windows))]
-        let _ = execute!(
-            self.terminal.backend_mut(),
-            PopKeyboardEnhancementFlags,
-            LeaveAlternateScreen
-        );
-        #[cfg(windows)]
-        let _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen);
-        let _ = self.terminal.show_cursor();
-    }
-}
-
-impl Drop for TerminalGuard {
-    fn drop(&mut self) {
-        self.leave();
-    }
 }
