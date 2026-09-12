@@ -231,4 +231,5 @@ if (-not (Get-Module PSReadLine -ErrorAction Ignore)) {
             }
         }
     }
+    $env:RECALL_HOOKS_ACTIVE = '1'
 }

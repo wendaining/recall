@@ -129,3 +129,5 @@ bind @RECALL_SEARCH_KEY@ __recall_search
 if test (uname) = Darwin
     bind '®' __recall_search
 end
+
+set -gx RECALL_HOOKS_ACTIVE 1
