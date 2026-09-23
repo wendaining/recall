@@ -355,7 +355,7 @@ path. On Windows the database defaults to `%LOCALAPPDATA%\recall\recall.db`.
 ```toml
 [general]
 max_output_bytes = 1048576   # per-command output cap (before compression)
-strip_ansi = true
+strip_ansi = false
 
 [proxy]
 login_shell = true           # spawn the shell with -l (default: true on macOS)
@@ -395,7 +395,7 @@ terminal emulator ──▶ recall proxy (PTY/ConPTY) ──▶ shell (zsh/bash/
 - The proxy parses and strips these markers, so command boundaries are exact and
   the prompt is never captured. There is no side channel or socket, which
   keeps recall shell- and OS-agnostic.
-- Output is ANSI-stripped, classified, capped, zstd-compressed and stored in
+- Output is classified, capped, zstd-compressed and stored in
   SQLite together with self-contained command metadata. Optional imports are
   tracked in a separate, source-neutral provenance table.
 

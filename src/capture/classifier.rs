@@ -25,7 +25,7 @@ pub fn detect_interactive(raw: &[u8]) -> bool {
         .any(|marker| raw.windows(marker.len()).any(|w| w == *marker))
 }
 
-/// Classify captured output and produce the storable plain-text form.
+/// Classify visible text while optionally retaining terminal styling in storage.
 pub fn classify(input: ClassifyInput<'_>) -> Classified {
     let ClassifyInput {
         raw,
@@ -43,13 +43,7 @@ pub fn classify(input: ClassifyInput<'_>) -> Classified {
         };
     }
 
-    let text = if strip_ansi {
-        crate::util::strip_ansi(raw)
-    } else {
-        raw.to_vec()
-    };
-
-    let text = trim_trailing(&text);
+    let text = trim_trailing(&crate::util::strip_ansi(raw));
 
     if text.is_empty() {
         return Classified {
@@ -67,8 +61,14 @@ pub fn classify(input: ClassifyInput<'_>) -> Classified {
         };
     }
 
-    if text.len() > max_output_bytes {
-        let mut out = text[..max_output_bytes].to_vec();
+    let output = if strip_ansi {
+        text
+    } else {
+        trim_trailing(&normalize_crlf(raw))
+    };
+
+    if output.len() > max_output_bytes {
+        let mut out = output[..max_output_bytes].to_vec();
         out.extend_from_slice(b"\n[recall: output truncated]\n");
         return Classified {
             kind: BlockKind::Normal,
@@ -79,9 +79,24 @@ pub fn classify(input: ClassifyInput<'_>) -> Classified {
 
     Classified {
         kind: BlockKind::Normal,
-        output: Some(text),
+        output: Some(output),
         truncated: false,
     }
+}
+
+fn normalize_crlf(data: &[u8]) -> Vec<u8> {
+    let mut normalized = Vec::with_capacity(data.len());
+    let mut i = 0;
+    while i < data.len() {
+        if data[i] == b'\r' && data.get(i + 1) == Some(&b'\n') {
+            normalized.push(b'\n');
+            i += 2;
+        } else {
+            normalized.push(data[i]);
+            i += 1;
+        }
+    }
+    normalized
 }
 
 fn trim_trailing(data: &[u8]) -> Vec<u8> {
@@ -163,5 +178,21 @@ mod tests {
         let out = classify_raw(&raw);
         assert!(out.truncated);
         assert!(out.output.unwrap().len() < 4096);
+    }
+
+    #[test]
+    fn retains_style_without_treating_escapes_as_binary() {
+        let out = classify(ClassifyInput {
+            raw: b"\x1b[31mred\x1b[0m\n",
+            interactive: false,
+            max_output_bytes: 1024,
+            strip_ansi: false,
+            mark_interactive: true,
+        });
+        assert_eq!(out.kind, BlockKind::Normal);
+        assert_eq!(
+            out.output.as_deref(),
+            Some(b"\x1b[31mred\x1b[0m".as_slice())
+        );
     }
 }

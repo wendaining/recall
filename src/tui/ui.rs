@@ -6,6 +6,7 @@ use ratatui::widgets::{Block, Clear, List, ListItem, Paragraph, Wrap};
 use unicode_width::UnicodeWidthStr;
 
 use crate::model::{Block as RecallBlock, BlockKind};
+use crate::tui::ansi;
 use crate::tui::app::{App, Focus};
 use crate::util;
 
@@ -71,13 +72,14 @@ fn draw_list(frame: &mut Frame, app: &mut App, area: Rect) {
     let block = Block::bordered()
         .title(title)
         .border_style(border_style(!focused));
+    let inner_width = block.inner(area).width;
 
     let items: Vec<ListItem> = app
         .results
         .iter()
         .map(|entry| {
             let selected = app.selected_ids.contains(&entry.id);
-            ListItem::new(block_lines(entry, &app.config, selected))
+            ListItem::new(block_lines(entry, &app.config, selected, inner_width))
                 .style(block_selection_style(selected))
         })
         .collect();
@@ -107,12 +109,10 @@ fn block_lines(
     block: &RecallBlock,
     config: &crate::config::Config,
     selected: bool,
+    width: u16,
 ) -> Text<'static> {
     let mut lines = Vec::new();
-    lines.push(Line::from(Span::styled(
-        "─".repeat(200),
-        Style::default().fg(Color::Indexed(240)),
-    )));
+    lines.push(separator(width));
     lines.push(header_line(block, config));
     lines.push(Line::from(vec![
         Span::styled(
@@ -178,9 +178,10 @@ fn draw_detail(frame: &mut Frame, app: &App, area: Rect) {
     let block = Block::bordered()
         .title(" detail ")
         .border_style(border_style(focused));
+    let inner_width = block.inner(area).width;
 
     let text = match &app.detail {
-        Some(entry) => detail_text(entry, &app.config),
+        Some(entry) => detail_text(entry, &app.config, inner_width),
         None => Text::from(Line::from(Span::styled(
             "no block selected",
             Style::default().fg(Color::DarkGray),
@@ -194,7 +195,7 @@ fn draw_detail(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(paragraph, area);
 }
 
-fn detail_text(block: &RecallBlock, config: &crate::config::Config) -> Text<'static> {
+fn detail_text(block: &RecallBlock, config: &crate::config::Config, width: u16) -> Text<'static> {
     let mut lines: Vec<Line> = vec![
         Line::from(Span::styled(
             block.command.clone(),
@@ -209,18 +210,12 @@ fn detail_text(block: &RecallBlock, config: &crate::config::Config) -> Text<'sta
             Span::styled("   lines: ", Style::default().fg(Color::DarkGray)),
             Span::raw(block.output_lines.to_string()),
         ]),
-        Line::from(Span::styled(
-            "─".repeat(200),
-            Style::default().fg(Color::Indexed(240)),
-        )),
+        separator(width),
     ];
 
     match &block.output {
         Some(output) => {
-            let text = String::from_utf8_lossy(output);
-            for line in text.lines() {
-                lines.push(Line::raw(line.to_string()));
-            }
+            lines.extend(ansi::styled_lines(output));
         }
         None => lines.push(Line::from(Span::styled(
             format!("[{}]", kind_label(block.kind)),
@@ -229,6 +224,13 @@ fn detail_text(block: &RecallBlock, config: &crate::config::Config) -> Text<'sta
     }
 
     Text::from(lines)
+}
+
+fn separator(width: u16) -> Line<'static> {
+    Line::from(Span::styled(
+        "─".repeat(usize::from(width)),
+        Style::default().fg(Color::Indexed(240)),
+    ))
 }
 
 fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
@@ -342,4 +344,25 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
         Constraint::Percentage((100 - percent_x) / 2),
     ])
     .split(vertical[1])[1]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn separators_follow_each_pane_width() {
+        let entry = RecallBlock {
+            command: "echo hello".to_string(),
+            ..RecallBlock::default()
+        };
+        let config = crate::config::Config::default();
+        for width in [0, 1, 12, 64] {
+            let list = block_lines(&entry, &config, false, width);
+            let detail = detail_text(&entry, &config, width);
+            let expected = "─".repeat(usize::from(width));
+            assert_eq!(list.lines[0].spans[0].content, expected);
+            assert_eq!(detail.lines[3].spans[0].content, expected);
+        }
+    }
 }

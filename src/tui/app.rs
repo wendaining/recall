@@ -304,7 +304,7 @@ impl App {
             .detail
             .as_ref()
             .and_then(|block| block.output.as_ref())
-            .map(|bytes| String::from_utf8_lossy(bytes).into_owned());
+            .map(|bytes| String::from_utf8_lossy(&crate::util::strip_ansi(bytes)).into_owned());
         match output {
             Some(text) if !text.is_empty() => self.copy_text(&text, "output"),
             _ => self.set_error("no output to copy".to_string()),
@@ -422,7 +422,7 @@ fn format_transcript(blocks: &[Block]) -> String {
             let mut section = format!("$ {}", block.command);
             if let Some(output) = block.output.as_deref().filter(|output| !output.is_empty()) {
                 section.push('\n');
-                section.push_str(&String::from_utf8_lossy(output));
+                section.push_str(&String::from_utf8_lossy(&crate::util::strip_ansi(output)));
             }
             section
         })
@@ -550,6 +550,22 @@ mod tests {
         assert_eq!(
             copied.lock().unwrap().as_deref(),
             Some("$ first command\nfirst output\n\n$ second command\nsecond output")
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn copying_styled_output_uses_plain_text() {
+        let (mut app, copied, dir) =
+            test_app(&[block("styled", "printf color", "\x1b[31mred\x1b[0m", 100)]);
+        app.copy_output();
+        assert_eq!(copied.lock().unwrap().as_deref(), Some("red"));
+
+        app.selected_ids.insert("styled".to_string());
+        app.copy_selected_transcript();
+        assert_eq!(
+            copied.lock().unwrap().as_deref(),
+            Some("$ printf color\nred")
         );
         std::fs::remove_dir_all(dir).unwrap();
     }

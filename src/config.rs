@@ -88,7 +88,7 @@ impl Default for General {
         Self {
             db_path: default_data_dir().join("recall.db"),
             max_output_bytes: 1024 * 1024,
-            strip_ansi: true,
+            strip_ansi: false,
             hostname: None,
         }
     }

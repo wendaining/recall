@@ -27,6 +27,7 @@ tar = "0.4.44"
 toml = "1.1.5"
 ulid = { version = "3.0.0", features = ["serde"] }
 unicode-width = "0.2.2"
+vte = "0.14.1"
 zstd = "0.14.0"
 zip = { version = "8.2.0", default-features = false, features = ["deflate"] }
 toml_edit = "0.25.15"

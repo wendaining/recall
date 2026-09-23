@@ -1,3 +1,4 @@
+mod ansi;
 mod app;
 pub(crate) mod config;
 mod runtime;

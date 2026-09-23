@@ -240,7 +240,7 @@ else
     if [ -n "$shell_path" ]; then
         say ""
         say "Start an isolated shell with:"
-        say "  env HOME=\"$install_home\" ZDOTDIR=\"$install_home\" XDG_CONFIG_HOME=\"$config_home\" XDG_DATA_HOME=\"$data_home\" RECALL_CONFIG=\"$recall_config\" PATH=\"$install_dir:\$PATH\" SHELL=\"$shell_path\" TERM=\"$test_term\" \"$shell_path\" -i"
+        say "  env -u RECALL_PROXY_ACTIVE -u RECALL_AUTO_LAUNCH -u RECALL_SESSION -u RECALL_PROXY HOME=\"$install_home\" ZDOTDIR=\"$install_home\" XDG_CONFIG_HOME=\"$config_home\" XDG_DATA_HOME=\"$data_home\" RECALL_CONFIG=\"$recall_config\" PATH=\"$install_dir:\$PATH\" SHELL=\"$shell_path\" TERM=\"$test_term\" \"$shell_path\" -i"
     fi
     say ""
     say "Remove the sandbox when finished:"

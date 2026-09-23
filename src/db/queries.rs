@@ -85,8 +85,9 @@ fn insert_block(conn: &Connection, block: &Block) -> Result<()> {
     let (blob, codec, text) = match &block.output {
         Some(raw) if !raw.is_empty() => {
             let compressed = compress(raw)?;
-            let projection_len = raw.len().min(SEARCH_PROJECTION_BYTES);
-            let projection = String::from_utf8_lossy(&raw[..projection_len]).into_owned();
+            let plain = crate::util::strip_ansi(raw);
+            let projection_len = plain.len().min(SEARCH_PROJECTION_BYTES);
+            let projection = String::from_utf8_lossy(&plain[..projection_len]).into_owned();
             (Some(compressed), Some("zstd".to_string()), Some(projection))
         }
         _ => (None, None, None),
@@ -367,6 +368,35 @@ mod tests {
         insert(&db.conn, &sample("a", "ls -la", Some("total 0"), 1)).unwrap();
         let hits = search(&db.conn, "ls", 10).unwrap();
         assert_eq!(hits.len(), 1);
+    }
+
+    #[test]
+    fn styled_output_has_plain_search_projection() {
+        let db = Db::open_in_memory().unwrap();
+        let block = Block {
+            id: "styled".to_string(),
+            command: "printf color".to_string(),
+            output: Some(b"\x1b[31mred\x1b[0m".to_vec()),
+            ..Block::default()
+        };
+        insert(&db.conn, &block).unwrap();
+        let projection: String = db
+            .conn
+            .query_row(
+                "SELECT output_text FROM blocks WHERE id = 'styled'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(projection, "red");
+        assert_eq!(
+            recent(&db.conn, 1).unwrap()[0].output.as_deref(),
+            Some(b"red".as_slice())
+        );
+        assert_eq!(
+            get(&db.conn, "styled").unwrap().unwrap().output,
+            block.output
+        );
     }
 
     #[test]

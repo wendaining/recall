@@ -243,7 +243,7 @@ choose_search_key() {
 
     case "${RECALL_SEARCH_KEY:-}" in
         "" ) ;;
-        default | alt-r ) return 0 ;;
+        default | alt-r ) search_key="alt-r"; return 0 ;;
         * ) search_key=$RECALL_SEARCH_KEY; return 0 ;;
     esac
 
@@ -261,7 +261,7 @@ choose_search_key() {
     IFS= read -r answer < /dev/tty || answer=""
     case "$answer" in
         2) search_key="ctrl-t" ;;
-        3) search_key="" ;;
+        3) search_key="alt-r" ;;
         *) search_key="ctrl-x ctrl-r" ;;
     esac
 }

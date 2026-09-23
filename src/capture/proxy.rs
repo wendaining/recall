@@ -322,7 +322,10 @@ fn finalize(
 
     if !active.exclude_output
         && shared.config.proxy.secrets_filter
-        && looks_secret(&active.command, &classified.output)
+        && looks_secret(
+            &active.command,
+            &classified.output.as_ref().map(|out| util::strip_ansi(out)),
+        )
     {
         classified = classifier::Classified {
             kind: BlockKind::Filtered,
@@ -334,7 +337,12 @@ fn finalize(
     let output_lines = classified
         .output
         .as_ref()
-        .map(|out| out.iter().filter(|&&b| b == b'\n').count() as i64)
+        .map(|out| {
+            util::strip_ansi(out)
+                .iter()
+                .filter(|&&b| b == b'\n')
+                .count() as i64
+        })
         .unwrap_or(0);
 
     Block {

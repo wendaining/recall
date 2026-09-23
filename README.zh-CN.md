@@ -316,7 +316,7 @@ Linux/macOS 为 `~/.config/recall/config.toml`，Windows 为
 ```toml
 [general]
 max_output_bytes = 1048576   # 单条命令输出上限（压缩前）
-strip_ansi = true
+strip_ansi = false
 
 [proxy]
 login_shell = true           # 以 -l 启动 shell（macOS 默认开启）
@@ -352,7 +352,7 @@ date_format = "%Y-%m-%d %H:%M:%S"
   标记，携带 `{command, cwd, start}`；并在下一个提示符绘制前写入带退出码的结束标记。
 - 代理解析并剥离这些标记，因此命令边界精确，提示符永远不会被捕获。没有旁路通道
   或 socket，这让 recall 与 shell、操作系统无关。
-- 输出经过去 ANSI、分类、限长、zstd 压缩后，与完整命令元数据一起存入 SQLite。
+- 输出经过分类、限长、zstd 压缩后，与完整命令元数据一起存入 SQLite。
   可选导入的来源关系保存在独立、与具体来源无关的记录表中。
 
 ## 兼容性
