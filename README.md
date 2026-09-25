@@ -19,7 +19,24 @@ npm run build
 npm run preview
 ```
 
-Vite uses a relative asset base so the built site can later be served from a GitHub Pages project path. Building or previewing does not deploy it.
+Vite uses a relative asset base, so the built site works at a project path or at the custom domain. Building or previewing does not deploy it.
+
+## Checks and deployment
+
+GitHub Actions runs `npm ci` and `npm run build` on pushes and pull requests to `gh-pages`. It checks the source but does not publish the site. Run the same checks locally before releasing:
+
+```sh
+npm ci
+npm run build
+```
+
+The site is published by [Cloudflare Pages Direct Upload](https://developers.cloudflare.com/pages/how-to/use-direct-upload-with-continuous-integration/). The Pages project is `recall` in the Cloudflare account that owns `wendain.ing`, its production branch is `gh-pages`, and its custom domain is [recall.wendain.ing](https://recall.wendain.ing/). To build and upload the `dist/` directory from this checkout:
+
+```sh
+npm run deploy
+```
+
+For a local release, authenticate once with `npx wrangler login`; Wrangler stores the OAuth login outside this repository. No API token needs to be added to the project or GitHub for the current check-only CI. For a future unattended upload from GitHub Actions, create a Cloudflare API token with **Account → Cloudflare Pages → Edit** permission, set it as the `CLOUDFLARE_API_TOKEN` repository secret, and set `CLOUDFLARE_ACCOUNT_ID` to the account ID. Never commit tokens or `dist/`. The source branch stays intact because the build output is uploaded directly to Pages rather than pushed over `gh-pages`.
 
 ## Project structure
 
