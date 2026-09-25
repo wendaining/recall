@@ -23,7 +23,7 @@ Vite uses a relative asset base, so the built site works at a project path or at
 
 ## Checks and deployment
 
-GitHub Actions runs `npm ci` and `npm run build` on pushes and pull requests to `gh-pages`. It checks the source but does not publish the site. Run the same checks locally before releasing:
+GitHub Actions runs `npm ci` and `npm run build` on pushes and pull requests to `gh-pages`. A successful push uploads `dist/` as a GitHub Pages artifact and publishes it at [wendaining.github.io/recall/](https://wendaining.github.io/recall/); pull requests only run the checks. Run the same checks locally before releasing:
 
 ```sh
 npm ci
@@ -36,7 +36,7 @@ The site is published by [Cloudflare Pages Direct Upload](https://developers.clo
 npm run deploy
 ```
 
-For a local release, authenticate once with `npx wrangler login`; Wrangler stores the OAuth login outside this repository. No API token needs to be added to the project or GitHub for the current check-only CI. For a future unattended upload from GitHub Actions, create a Cloudflare API token with **Account → Cloudflare Pages → Edit** permission, set it as the `CLOUDFLARE_API_TOKEN` repository secret, and set `CLOUDFLARE_ACCOUNT_ID` to the account ID. Never commit tokens or `dist/`. The source branch stays intact because the build output is uploaded directly to Pages rather than pushed over `gh-pages`.
+For a local Cloudflare release, authenticate once with `npx wrangler login`; Wrangler stores the OAuth login outside this repository. GitHub Pages uses the workflow's built-in `GITHUB_TOKEN`, so no Cloudflare API token needs to be added for that deployment. For a future unattended Cloudflare upload from GitHub Actions, create a Cloudflare API token with **Account → Cloudflare Pages → Edit** permission, set it as the `CLOUDFLARE_API_TOKEN` repository secret, and set `CLOUDFLARE_ACCOUNT_ID` to the account ID. Never commit tokens or `dist/`. Both hosts receive built files without replacing the source in `gh-pages`.
 
 ## Project structure
 

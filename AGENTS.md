@@ -22,7 +22,7 @@ npm run preview
 
 Keep the site static and deployable at a GitHub Pages project path or the Cloudflare custom domain. Use relative asset URLs and avoid server-only behavior.
 
-GitHub Actions checks `gh-pages` with `npm ci` and `npm run build`; it does not deploy. Production is the Cloudflare Pages Direct Upload project `recall` on `recall.wendain.ing`. From an authenticated local checkout, `npm run deploy` builds and uploads `dist/` to its `gh-pages` production branch. Do not commit generated output or credentials. Local Wrangler OAuth works without an API token; unattended deployment would require a scoped Pages Edit token in CI secrets.
+GitHub Actions checks `gh-pages` with `npm ci` and `npm run build`, then deploys the `dist/` artifact to GitHub Pages on pushes to `gh-pages`. Pull requests run checks only. The Cloudflare Pages Direct Upload project `recall` serves `recall.wendain.ing`; from an authenticated local checkout, `npm run deploy` builds and uploads `dist/` to its `gh-pages` production branch. Do not commit generated output or credentials. Local Wrangler OAuth works without an API token; unattended Cloudflare deployment would require a scoped Pages Edit token in CI secrets.
 
 ## Organization and conventions
 
