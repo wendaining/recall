@@ -24,12 +24,12 @@ Keep the site static and deployable at a GitHub Pages project path. Use relative
 
 ## Organization and conventions
 
-- `src/App.tsx`: page composition and active story section.
-- `src/components/`: terminal scenes and reusable controls.
+- `src/App.tsx`: page composition, active story section, and scroll-to-playback mapping.
+- `src/components/TerminalScene.tsx`: deterministic terminal playback driven by a `progress` value from 0 to 1; `src/components/CopyCommand.tsx`: installer command copying.
 - `src/i18n/`: typed locale messages. Put all visible UI copy here, even while English is the only locale; do not display a language selector until another language exists.
 - `src/styles.css`: visual tokens, page layout, responsive breakpoints, and reduced-motion styles.
 - `public/`: local static assets.
 
-The desktop feature story uses a sticky terminal stage synchronized with the text sections. Mobile must present each scene inline with its explanation. Use semantic sections and headings, keep links and buttons keyboard accessible, and make every feature understandable without animation. Respect `prefers-reduced-motion`. Avoid unnecessary animation libraries and keep scroll updates efficient.
+The feature story uses a sticky terminal on desktop and narrow screens. Scrolling down must type commands, stream output, and advance the terminal viewport; scrolling up must reverse the same sequence. Keep playback deterministic from the section's scroll progress, with no timer, live shell, or nested wheel-scrolling surface. On narrow screens, keep the active explanation visible below the terminal. Use semantic sections and headings, keep links and buttons keyboard accessible, and make every feature understandable without animation. In `prefers-reduced-motion`, show the complete frame for the current section. Keep scroll updates efficient and avoid unnecessary animation libraries.
 
 Before committing, run the relevant typecheck/build and inspect desktop and mobile layouts when visual behavior changes. Use small Conventional Commits while developing, as the instruction above requires.

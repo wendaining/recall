@@ -23,13 +23,13 @@ Vite uses a relative asset base so the built site can later be served from a Git
 
 ## Project structure
 
-- `src/App.tsx` composes the landing page and its scroll-driven feature story.
-- `src/components/` contains the terminal scenes and reusable UI controls.
+- `src/App.tsx` composes the landing page and maps each story section's scroll position to playback progress.
+- `src/components/TerminalScene.tsx` renders the terminal recording from that progress, including typed commands and streamed output; `src/components/CopyCommand.tsx` handles installer command copying.
 - `src/i18n/` holds the typed English copy and the locale access layer.
 - `src/styles.css` defines the visual system, layout, responsive behavior, and reduced-motion rules.
 - `public/` contains the local brand asset and other static files.
 
-The terminal scenes are illustrative HTML/CSS representations of Recall's behavior, not a live terminal. Product claims, supported platforms, and installation commands must match the [main Recall README](https://github.com/wendaining/recall#readme).
+The terminal recording is an illustrative HTML/CSS representation of Recall's behavior, not a live terminal. Scrolling down plays it and scrolling up rewinds it; the terminal viewport advances as lines accumulate. The terminal stays visible beside the story on desktop and above the current feature explanation on narrow screens. Reduced-motion mode shows complete frames. Product claims, supported platforms, and installation commands must match the [main Recall README](https://github.com/wendaining/recall#readme).
 
 ## Adding a language
 
