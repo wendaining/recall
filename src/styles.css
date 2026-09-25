@@ -37,8 +37,9 @@ button:disabled { cursor: not-allowed; }
 .site-header nav { display: flex; gap: clamp(1.25rem, 3vw, 3rem); color: #b6c0d3; font-size: .91rem; }
 .site-header a { transition: color .2s ease; }
 .site-header a:hover { color: white; }
-.header-github { display: inline-flex; gap: .75rem; align-items: center; font-size: .88rem; font-weight: 700; }
-.header-github span { color: var(--violet); }
+.header-github { display: inline-flex; align-items: center; justify-content: center; width: 2.75rem; height: 2.75rem; border-radius: 50%; }
+.header-github:hover { background: #ffffff12; }
+.header-github svg { display: block; width: 1.65rem; height: 1.65rem; }
 
 .hero { position: relative; display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(0, .92fr); align-items: center; max-width: 1440px; min-height: min(800px, calc(100svh - 80px)); margin: auto; padding: 5rem 4vw 7rem; isolation: isolate; }
 .hero-glow { position: absolute; right: 4%; top: 12%; z-index: -1; width: 48%; aspect-ratio: 1; background: radial-gradient(circle, #634ef233 0%, #2877db1c 30%, transparent 70%); filter: blur(32px); pointer-events: none; }
