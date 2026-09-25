@@ -8,15 +8,26 @@ const scenes: SceneIndex[] = [0, 1, 2, 3]
 const github = 'https://github.com/wendaining/recall'
 
 export default function App() {
-  const [activeScene, setActiveScene] = useState<SceneIndex>(0)
+  const [playback, setPlayback] = useState<{ scene: SceneIndex; progress: number }>({ scene: 0, progress: 0 })
+  const [reducedMotion, setReducedMotion] = useState(false)
   const storySections = useRef<(HTMLElement | null)[]>([])
+  const activeScene = playback.scene
+
+  useEffect(() => {
+    const preference = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const updatePreference = () => setReducedMotion(preference.matches)
+    updatePreference()
+    preference.addEventListener('change', updatePreference)
+    return () => preference.removeEventListener('change', updatePreference)
+  }, [])
 
   useEffect(() => {
     let frame = 0
 
-    function updateActiveScene() {
+    function updatePlayback() {
       frame = 0
-      const activationLine = window.innerHeight * 0.48
+      const isNarrow = window.matchMedia('(max-width: 980px)').matches
+      const activationLine = isNarrow ? Math.min(window.innerHeight * .72, 520) : window.innerHeight * .48
       let next: SceneIndex = 0
 
       for (const scene of scenes) {
@@ -24,11 +35,15 @@ export default function App() {
         if (section && section.getBoundingClientRect().top <= activationLine) next = scene
       }
 
-      setActiveScene(previous => previous === next ? previous : next)
+      const section = storySections.current[next]
+      const rect = section?.getBoundingClientRect()
+      const rawProgress = rect ? (activationLine - rect.top) / rect.height : 0
+      const progress = Math.round(Math.max(0, Math.min(1, rawProgress)) * 240) / 240
+      setPlayback(previous => previous.scene === next && previous.progress === progress ? previous : { scene: next, progress })
     }
 
     function scheduleUpdate() {
-      if (!frame) frame = window.requestAnimationFrame(updateActiveScene)
+      if (!frame) frame = window.requestAnimationFrame(updatePlayback)
     }
 
     window.addEventListener('scroll', scheduleUpdate, { passive: true })
@@ -74,7 +89,7 @@ export default function App() {
           <div className="hero-art" aria-hidden="true">
             <div className="hero-art-line hero-art-line-one" />
             <div className="hero-art-line hero-art-line-two" />
-            <div className="hero-terminal-wrap"><TerminalScene scene={0} compact /></div>
+            <div className="hero-terminal-wrap"><TerminalScene scene={0} progress={.76} compact /></div>
             <div className="hero-art-tag">{copy.hero.artTag} <span>●</span></div>
           </div>
           <div className="hero-scroll-label" aria-hidden="true">{copy.hero.scroll} <span>↓</span></div>
@@ -91,8 +106,14 @@ export default function App() {
           <div className="story-grid">
             <div className="story-stage" aria-hidden="true">
               <div className="stage-heading"><span>{copy.story.currentScene} <strong>0{activeScene + 1} / 04</strong></span><span className="stage-dashes">— — — —</span></div>
-              <TerminalScene scene={activeScene} />
-              <div className="stage-foot"><span>{copy.story.demoNote}</span><div className="stage-progress">{scenes.map(scene => <i key={scene} className={scene === activeScene ? 'active' : ''} />)}</div></div>
+              <TerminalScene scene={activeScene} progress={reducedMotion ? 1 : playback.progress} />
+              <div className="stage-foot"><span>{copy.story.scrollCue}</span><span className="stage-note">{copy.story.demoNote}</span></div>
+              <div className="stage-progress-track"><span style={{ width: `${((activeScene + playback.progress) / scenes.length) * 100}%` }} /></div>
+              <div className="stage-mobile-copy">
+                <span>{copy.story.steps[activeScene].number} / {copy.story.steps[activeScene].eyebrow}</span>
+                <h3>{copy.story.steps[activeScene].heading}</h3>
+                <p>{copy.story.steps[activeScene].description}</p>
+              </div>
             </div>
 
             <div className="story-steps">
@@ -106,7 +127,6 @@ export default function App() {
                   <div className="step-rule"><span>{step.number}</span><span>{step.eyebrow}</span></div>
                   <h3>{step.heading}</h3>
                   <p>{step.description}</p>
-                  <div className="mobile-demo" aria-hidden="true"><TerminalScene scene={scene} compact /><small>{copy.story.demoNote}</small></div>
                 </article>
               })}
             </div>
