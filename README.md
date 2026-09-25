@@ -4,7 +4,7 @@ The English, single-page website for [Recall](https://github.com/wendaining/reca
 
 ## Local development
 
-Requires Node.js 20.19+ and npm.
+Requires Node.js 20.19+ within the 20.x line, or 22.12+ and npm.
 
 ```sh
 npm install
