@@ -1,0 +1,90 @@
+export const en = {
+  nav: {
+    product: 'Product',
+    features: 'Features',
+    install: 'Install',
+    github: 'GitHub',
+  },
+  hero: {
+    eyebrow: 'COMMAND HISTORY, WITH THE WHOLE STORY',
+    titleStart: 'Your terminal',
+    titleEnd: 'has a memory.',
+    description: 'Recall saves your commands and their output as distinct, searchable blocks. Find what happened, see the context, and continue your work.',
+    install: 'Get Recall',
+    explore: 'See how it works',
+    note: 'Made for your terminal. No new emulator required.',
+  },
+  story: {
+    eyebrow: 'THE WORKFLOW',
+    heading: 'Every command has a story.',
+    lead: 'Scroll through a real workflow, from a command at your prompt to the answer you need later.',
+    demoNote: 'Illustrative interface · no commands run in your browser',
+    steps: [
+      {
+        number: '01',
+        eyebrow: 'CAPTURE',
+        heading: 'Keep the output, not just the command.',
+        description: 'Recall wraps your usual shell and saves each execution as a block, with its output, working directory, time, and exit code.',
+      },
+      {
+        number: '02',
+        eyebrow: 'SEARCH',
+        heading: 'Find the moment you need.',
+        description: 'Search across command text and captured output. A familiar prompt helps you find useful history without leaving the terminal.',
+      },
+      {
+        number: '03',
+        eyebrow: 'INSPECT',
+        heading: 'See the context at a glance.',
+        description: 'Open a block to review its output alongside when and where it ran, how long it took, and whether it succeeded.',
+      },
+      {
+        number: '04',
+        eyebrow: 'CONTINUE',
+        heading: 'Pick up where you left off.',
+        description: 'Copy a command or its output, bring a command back to your prompt for editing, or rerun it from the history view.',
+      },
+    ],
+  },
+  features: {
+    eyebrow: 'BUILT TO FIT',
+    heading: 'Your shell stays yours.',
+    lead: 'Recall adds a useful memory to the terminal you already use.',
+    items: [
+      {
+        number: '01 / EVERYDAY FLOW',
+        title: 'Works with your terminal',
+        description: 'Use your existing terminal emulator. Recall captures output through a PTY proxy while your shell remains interactive.',
+      },
+      {
+        number: '02 / YOUR HISTORY',
+        title: 'Bring the past along',
+        description: 'Import existing bash, zsh, fish, PowerShell, or optional atuin command history.',
+      },
+      {
+        number: '03 / LOCAL CONTROL',
+        title: 'Stored on your machine',
+        description: 'History lives in a local SQLite database. Secret filtering and output retention help you decide what stays.',
+      },
+    ],
+  },
+  install: {
+    eyebrow: 'GET STARTED',
+    heading: 'A better history is one command away.',
+    description: 'Run the installer for your platform, then open a new terminal. Recall sets up automatic capture and search for supported shells.',
+    unixLabel: 'Linux / macOS',
+    windowsLabel: 'Windows',
+    copy: 'Copy command',
+    copied: 'Copied',
+    unixCommand: 'curl -fsSL https://raw.githubusercontent.com/wendaining/recall/master/install.sh | sh',
+    windowsCommand: 'irm https://raw.githubusercontent.com/wendaining/recall/master/install.ps1 | iex',
+    docs: 'Read the full setup guide',
+    releases: 'Browse releases',
+  },
+  footer: {
+    tagline: 'Recall what your terminal did.',
+    source: 'Source on GitHub',
+    license: 'MIT licensed',
+    note: 'An independent open-source tool for modern shells.',
+  },
+} as const
